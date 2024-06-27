@@ -49,7 +49,10 @@ if __name__ == "__main__":
     in_header_pattern = re.compile(args["in_header_format"])
     with open(args["in_mgf"], "r") as _in:
         for line in _in:
-            if len(args["fast_check"]) == 0 or line[:5] == args["fast_check"]:
+            if (
+                len(args["fast_check"]) == 0
+                or line[: len(args["fast_check"])] == args["fast_check"]
+            ):
                 match = in_header_pattern.search(line)
                 if match:
                     line = args["out_header_format"].format(**match.groupdict())
