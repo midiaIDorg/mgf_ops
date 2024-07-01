@@ -4,21 +4,18 @@ import glob
 from setuptools import find_packages, setup
 
 setup(
-    name="snakemaketools",
+    name="mgf_ops",
     packages=find_packages(),
     version="0.0.1",
-    description="Tools for Snakemake",
-    long_description="Extend Snakemake to work nicely with longer pipelines.",
+    description="Tools for mgf operations",
+    long_description="Tools to deal with the wrong format for its age.",
     author="Mateusz Krzysztof Łącki & Michał Startek",
     author_email="matteo.lacki@gmail.com",
-    url="https://github.com/midiaIDorg/snakemaketools.git",
+    url="https://github.com/midiaIDorg/mgf_ops.git",
     keywords=[
         "bioinformatics",
-        "shit",
         "boring",
-        "wasting my life",
         "lollipop",
-        "finding an ignorant in Bruker on high position: not impossible",
     ],
     classifiers=[
         "Development Status :: 1 - Planning",
