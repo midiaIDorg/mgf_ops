@@ -38,6 +38,7 @@ parser.add_argument(
     action="store_true",
     help="Drop requirement of folder's preexistance.",
 )
+
 args = parser.parse_args().__dict__
 
 
@@ -56,33 +57,36 @@ def get_size_in_bytes(spectrum):
 
 
 if __name__ == "__main__":
-    if args["createfolder"]:
-        args["out"].mkdir(parents=True)
+    if not args["input_mgf"].exists():
+        print(f"{args['input_mgf']} does not exist.")
+    else:
+        if args["createfolder"]:
+            args["out"].mkdir(parents=True)
 
-    mgf_size_in_bytes = os.path.getsize(args["input_mgf"])
-    max_size_in_bytes = args["max_GiB_size_per_file"] * 1024**3
+        mgf_size_in_bytes = os.path.getsize(args["input_mgf"])
+        max_size_in_bytes = args["max_GiB_size_per_file"] * 1024**3
 
-    spectra = iter_spectra(args["input_mgf"])
-    mgf_cnt: int = 0
-    spectrum: list[str] = []
-    finished = False
-    while not finished:
-        current_mgf_size_in_bytes = 0
-        with open(args["out"] / f"{mgf_cnt}.mgf", "w") as out_mgf:
-            current_mgf_size_in_bytes = get_size_in_bytes(spectrum)
-            for line in spectrum:
-                out_mgf.write(line)
+        spectra = iter_spectra(args["input_mgf"])
+        mgf_cnt: int = 0
+        spectrum: list[str] = []
+        finished = False
+        while not finished:
+            current_mgf_size_in_bytes = 0
+            with open(args["out"] / f"{mgf_cnt}.mgf", "w") as out_mgf:
+                current_mgf_size_in_bytes = get_size_in_bytes(spectrum)
+                for line in spectrum:
+                    out_mgf.write(line)
 
-            try:
-                while True:
-                    spectrum = next(spectra)
-                    size = get_size_in_bytes(spectrum)
-                    if current_mgf_size_in_bytes + size < max_size_in_bytes:
-                        current_mgf_size_in_bytes += size
-                        for line in spectrum:
-                            out_mgf.write(line)
-                    else:
-                        break
-            except StopIteration:
-                finished = True
-        mgf_cnt += 1
+                try:
+                    while True:
+                        spectrum = next(spectra)
+                        size = get_size_in_bytes(spectrum)
+                        if current_mgf_size_in_bytes + size < max_size_in_bytes:
+                            current_mgf_size_in_bytes += size
+                            for line in spectrum:
+                                out_mgf.write(line)
+                        else:
+                            break
+                except StopIteration:
+                    finished = True
+            mgf_cnt += 1
