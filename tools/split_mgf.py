@@ -33,6 +33,11 @@ parser.add_argument(
     type=float,
     required=True,
 )
+parser.add_argument(
+    "--createfolder",
+    action="store_true",
+    help="Drop requirement of folder's preexistance.",
+)
 args = parser.parse_args().__dict__
 
 
@@ -51,6 +56,9 @@ def get_size_in_bytes(spectrum):
 
 
 if __name__ == "__main__":
+    if args["createfolder"]:
+        args["out"].mkdir(parents=True)
+
     mgf_size_in_bytes = os.path.getsize(args["input_mgf"])
     max_size_in_bytes = args["max_GiB_size_per_file"] * 1024**3
 
