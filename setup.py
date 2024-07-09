@@ -33,4 +33,8 @@ setup(
     ],
     install_requires=[],
     scripts=glob.glob("tools/*.py"),
+    include_package_data=True,
+    package_data={
+        "mgfs_ops": ["configs/*.toml"],
+    },
 )

@@ -1,0 +1,3 @@
+in_header_format = 'TITLE=_\.(?P<clusterID_0>\d+)\.(?P<clusterID_1>\d+)\.(?P<charge>\d+) File:"(?P<filename>[^"]+)", NativeID:"merged=(?P<merged>[^ ]+) frame=(?P<frame>[^ ]+) scanStart=(?P<scanStart>[^ ]+) scanEnd=(?P<scanEnd>[^ ]+)", IonMobility:"(?P<IonMobility>[^"]+)"'
+out_header_format = 'TITLE={clusterID_0}.{clusterID_1}.{charge} f_{frame} SS_{scanStart} SE_{scanEnd} IM_{IonMobility}\n'
+fast_check="TITLE"
