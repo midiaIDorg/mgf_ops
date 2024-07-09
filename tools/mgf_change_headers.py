@@ -6,19 +6,6 @@ from pprint import pprint
 
 import tomllib
 
-# sage_format = r"TITLE=_\.(?P<clusterID_0>[^\.]+)\.(?P<clusterID_1>[^\.]+)\.2 File:\"_\.d\", NativeID:\"merged=(?P<merged>[^ ]+) frame=(?P<frame>[^ ]+) scanStart=(?P<scanStart>[^ ]+) scanEnd=(?P<scanEnd>[^ ]+) IonMobility:(?P<IonMobility>[^ ]+) intensity=(?P<intensity>\w+)"
-
-# fragpipe_format = 'TITLE=test.{clusterID_0}.{clusterID_1}.2 File:"test.d", NativeID:"merged={merged} frame={frame} scanStart={scanStart} scanEnd={scanEnd}", IonMobility:"{IonMobility}", intensity:{intensity}\n'
-
-# args = {
-#     "in_mgf": "/home/matteo/Poligono/test.mgf",
-#     "out_mgf": None,
-#     "in_header_format": sage_format,
-#     "out_header_format": fragpipe_format,
-#     "fast_check": "TITLE",
-# }
-
-
 parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     description="Change one flavor of MGF TITLE into another. Redirect output to STDOUT.",
@@ -31,27 +18,6 @@ parser.add_argument(
     "config",
     help="Configuration .toml file, containing fields: `in_header_format`, `out_header_format`, and, optionally, `fast_check`.",
 )
-
-# parser.add_argument(
-#     "--in_header_format",
-#     help="Header format to match to. Must use named regex groups, `?P<name>` thingies. Defaults to a flavor of midiaID SAGE.",
-#     # default=r"TITLE=_\.(?P<clusterID_0>[^\.]+)\.(?P<clusterID_1>[^\.]+)\.2 File:\"_\.d\", NativeID:\"merged=(?P<merged>[^ ]+) frame=(?P<frame>[^ ]+) scanStart=(?P<scanStart>[^ ]+) scanEnd=(?P<scanEnd>[^ ]+) IonMobility:(?P<IonMobility>[^ ]+) intensity=(?P<intensity>\w+)",
-#     default=r'TITLE=_\.(?P<clusterID_0>\d+)\.(?P<clusterID_1>\d+)\.(?P<charge>\d+) File:"(?P<filename>[^"]+)", NativeID:"merged=(?P<merged>[^ ]+) frame=(?P<frame>[^ ]+) scanStart=(?P<scanStart>[^ ]+) scanEnd=(?P<scanEnd>[^ ]+)", IonMobility:"(?P<IonMobility>[^"]+)"',
-#     type=str,
-# )
-# parser.add_argument(
-#     "--out_header_format",
-#     help="Header format to match to. Must use a subset of names of groups specified in `in_header_format`. Defaults to a flavor of Fragpipe.",
-#     # default='TITLE=test.{clusterID_0}.{clusterID_1}.2 File:"test.d", NativeID:"merged={merged} frame={frame} scanStart={scanStart} scanEnd={scanEnd}", IonMobility:"{IonMobility}", intensity:{intensity}\n',
-#     default="TITLE={clusterID_0}.{clusterID_1}.{charge} f_{frame} SS_{scanStart} SE_{scanEnd} IM_{IonMobility}\n",
-#     type=str,
-# )
-# parser.add_argument(
-#     "--fast_check",
-#     help="A faster than regex check if the line should qualify for regex match.",
-#     default="TITLE",
-#     type=str,
-# )
 args = parser.parse_args().__dict__
 
 
