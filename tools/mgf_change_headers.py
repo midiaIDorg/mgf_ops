@@ -60,4 +60,4 @@ if __name__ == "__main__":
         config["fast_check"] = ""
     config["in_mgf"] = args["mgf"]
     for line in iter_lines(**config):
-        print(line, end="")
+        print(line.strip())
