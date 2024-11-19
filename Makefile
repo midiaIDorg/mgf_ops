@@ -1,5 +1,3 @@
-make:
-	echo "Welcome to Project 'snakemaketools'"
 upload_test_pypi:
 	rm -rf dist || True
 	python setup.py sdist

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools >= 64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name="mgf_ops"
+version="0.0.2"
+description="Tools for mgf operations: the wrong format for its age."
+readme="README.md"
+authors=[
+    {name="Mateusz Krzysztof Łącki",email="matteo.lacki@gmail.com"},
+    {name="Michał Piotr Startek",email="michalsta@mimuw.edu.pl"},
+]
+dependencies = [
+    "click" ,
+    "toml",
+    "duckdb",
+    "numpy",
+    "numba",
+    "numba_progress",
+    "pandas_ops",
+    "mmapped_df",
+]
+
+[project.scripts]
+write_mgf = "mgf_ops.cli.write:write_mgf"
+split_mgf = "mgf_ops.cli.split:split_mgf"
+change_mgf_headers = "mgf_ops.cli.change:change_mgf_headers"
+
+[project.urls]
+homepage="https://github.com/midiaIDorg/mgf_ops.git"
+repository="https://github.com/midiaIDorg/mgf_ops.git"
+
+[tool.setuptools.package-data]
+mgf_ops = ["configs/*.toml"]
