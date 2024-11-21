@@ -22,12 +22,12 @@ def get_size_in_bytes(spectrum):
 @click.command(context_settings={"show_default": True})
 @click.argument("input_mgf", type=Path)
 @click.argument("output_folder", type=Path)
-@click.option("--max_GiB_size_per_file", type=float, default=1.5)
+@click.option("--max_gib_size_per_file", type=float, default=1.5)
 @click.option("--createfolder", is_flag=True)
 def split_mgf(
     input_mgf: Path,
     output_folder: Path,
-    max_GiB_size_per_file: float = 1.5,
+    max_gib_size_per_file: float = 1.5,
     createfolder: bool = False,
 ) -> None:
     """
@@ -36,7 +36,7 @@ def split_mgf(
     Arguments:\n
         input_mgf (pathlib.Path): Path to the .mgf.\n
         output_folder (pathlib.Path): Path to the folder containing split mgf as separate files.\n
-        max_GiB_size_per_file (float): Top size of the output MGFs in GiB.
+        max_gib_size_per_file (float): Top size of the output MGFs in GiB.
         createfolder (bool): Create folder for results. By default: not.
     """
     if createfolder:
@@ -45,7 +45,7 @@ def split_mgf(
     assert output_folder.exists(), f"Folder `{output_folder}` does not exist."
 
     mgf_size_in_bytes = os.path.getsize(input_mgf)
-    max_size_in_bytes = max_GiB_size_per_file * 1024**3
+    max_size_in_bytes = max_gib_size_per_file * 1024**3
 
     spectra = iter_spectra(input_mgf)
     mgf_cnt: int = 0
