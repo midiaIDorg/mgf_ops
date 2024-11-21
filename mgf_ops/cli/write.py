@@ -13,9 +13,12 @@ import duckdb
 import numba
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 import tomllib
 from mmapped_df import GroupedIndex
 from pandas_ops.io import read_df
+
+# TODO: add LexicographicIndex with its progressbar.
 
 
 @numba.njit(boundscheck=True, parallel=True)
@@ -113,6 +116,7 @@ def write_spectra(
 @click.argument("matches", type=Path)
 @click.argument("config", type=Path)
 @click.argument("out_mgf", type=Path)
+@click.option("--bruker_cluster_indexing", is_flag=True)
 @click.option("--verbose", is_flag=True)
 def write_mgf(
     precursor_cluster_stats: Path,
@@ -120,47 +124,50 @@ def write_mgf(
     matches: Path,
     config: Path,
     out_mgf: Path,
+    bruker_cluster_indexing: bool = False,
     verbose: bool = True,
 ) -> None:
     duck_con = duckdb.connect()
     with open(config, "rb") as f:
-        config = tomllib.load(f)
+        conf = tomllib.load(f)
 
     if verbose:
         print("Using the following MGF config:")
-        pprint(config)
+        pprint(conf)
 
     edges: pd.DataFrame = read_df(matches)
 
     # TODO: ADD TO CONSOLIDATED CONFIG QC
     assert (
-        "{precursor_stats_path}" in config["ms1"]
+        "{precursor_stats_path}" in conf["ms1"]
     ), f"The config entry `ms1` must be a query containing `{{precursor_stats_path}}` wildcard to get filled automatically with proper file system path."
     assert (
-        "{fragment_stats_path}" in config["ms2"]
+        "{fragment_stats_path}" in conf["ms2"]
     ), f"The config entry `ms2` must be a query containing `{{fragment_stats_path}}` wildcard to get filled automatically with proper file system path."
 
     if verbose:
         print("Gathering precursor stats.")
+
     precursor_stats = duckdb.query(
-        config["ms1"].replace("{precursor_stats_path}", str(precursor_cluster_stats))
+        conf["ms1"].replace("{precursor_stats_path}", str(precursor_cluster_stats))
     ).df()
 
     if verbose:
         print("Gathering fragment stats.")
     fragment_stats = duckdb.query(
-        config["ms2"].replace("{fragment_stats_path}", str(fragment_cluster_stats))
+        conf["ms2"].replace("{fragment_stats_path}", str(fragment_cluster_stats))
     ).df()
 
     if verbose:
         print("Gathering spectra stats.")
     edges_idx = GroupedIndex(edges.MS1_ClusterID, edges)
-    MS1_ClusterIDs = np.nonzero(edges_idx.counts)[0]
+    MS1_ClusterIDs = np.nonzero(edges_idx.counts)[0]  # == edges.MS1_ClusterID.unique()
 
-    _END_IONS_ = np.frombuffer(config["endions"].encode("ascii"), np.uint8)
+    _END_IONS_ = np.frombuffer(conf["endions"].encode("ascii"), np.uint8)
 
     if verbose:
         print("Calculating how many bytes each spectrum will take.")
+
     MS1_ClusterID_to_byte_cnt = get_spectra_byte_counts(
         MS1_ClusterIDs=MS1_ClusterIDs,
         MS1_ClusterID_to_start_fragments=edges_idx.index,
