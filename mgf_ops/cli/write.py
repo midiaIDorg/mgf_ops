@@ -7,8 +7,6 @@ from pathlib import Path
 from pprint import pprint
 
 import click
-from numba_progress import ProgressBar
-
 import duckdb
 import numba
 import numpy as np
@@ -16,6 +14,7 @@ import numpy.typing as npt
 import pandas as pd
 import tomllib
 from mmapped_df import GroupedIndex
+from numba_progress import ProgressBar
 from pandas_ops.io import read_df
 
 # TODO: add LexicographicIndex with its progressbar.
@@ -117,6 +116,7 @@ def write_spectra(
 @click.argument("config", type=Path)
 @click.argument("out_mgf", type=Path)
 @click.option("--bruker_cluster_indexing", is_flag=True)
+@click.option("--threads_cnt", type=int, default=numba.get_num_threads())
 @click.option("--verbose", is_flag=True)
 def write_mgf(
     precursor_cluster_stats: Path,
@@ -125,8 +125,11 @@ def write_mgf(
     config: Path,
     out_mgf: Path,
     bruker_cluster_indexing: bool = False,
+    threads_cnt: int = numba.get_num_threads(),
     verbose: bool = True,
 ) -> None:
+    numba.set_num_threads(threads_cnt)
+
     duck_con = duckdb.connect()
     with open(config, "rb") as f:
         conf = tomllib.load(f)
