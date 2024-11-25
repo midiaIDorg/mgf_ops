@@ -115,7 +115,6 @@ def write_spectra(
 @click.argument("matches", type=Path)
 @click.argument("config", type=Path)
 @click.argument("out_mgf", type=Path)
-@click.option("--bruker_cluster_indexing", is_flag=True)
 @click.option("--threads_cnt", type=int, default=numba.get_num_threads())
 @click.option("--verbose", is_flag=True)
 def write_mgf(
@@ -124,7 +123,6 @@ def write_mgf(
     matches: Path,
     config: Path,
     out_mgf: Path,
-    bruker_cluster_indexing: bool = False,
     threads_cnt: int = numba.get_num_threads(),
     verbose: bool = True,
 ) -> None:
