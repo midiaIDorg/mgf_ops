@@ -54,9 +54,19 @@ def parse_mgf(mgf_path, sort_peaks=False):
     return np.array(MS1_ClusterIDs), np.array(peak_cnts), peak_list
 
 
+def iter_MS1_ClusterIDs(mgf_path, sort_peaks=False):
+    with open(mgf_path, "r") as file:
+        for line_spectrum in tqdm(iter_spectra(file)):
+            header, peaks = parse_line_spectrum(line_spectrum)
+            yield int(header[0].split(".", 2)[1])
+
+
 mgf_path_new = "partial/G8027/G8045/MS1@tims@1fd37e91592@default@fast@default@MS2@tims@1fd37e91592@default@fast@default/matcher@prtree@narrow/rough@fast.mgf_fast"
 
 mgf_path_old = "partial/G8027/G8045/MS1@tims@1fd37e91592@default@fast@default@MS2@tims@1fd37e91592@default@fast@default/matcher@prtree@narrow/rough@default.mgf"
+
+# mgf_path_new = "tmp/mgfs/426/midia.mgf"
+mgf_MS1_ClusterIDs = list(iter_MS1_ClusterIDs("tmp/mgfs/426/midia.mgf"))
 
 MS1_ClusterIDs_new, peak_cnts_new, peak_list_new = parse_mgf(mgf_path_new)
 MS1_ClusterIDs_old, peak_cnts_old, peak_list_old = parse_mgf(mgf_path_old)
