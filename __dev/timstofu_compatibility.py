@@ -82,6 +82,14 @@ def msms2mgf(
         print("Using the following MGF config:")
         pprint(config)
 
+    # TODO: how the heck can this be divided into chunks if I need to divide that with precursors???? fix that chunking.
+
+    # INSTEAD: USE THIS BELOW AND SPLIT THAT AND THEN COUNT ON THESE CHUNKS....,
+    # OR, BETTER, USE THIS CHUNKING AND FIND OUT WHICH PRECURSORS ARE INVOLVED.
+
+    # fragment_index = precursors[
+    #     ["fragment_spectrum_start", "fragment_spectrum_end"]
+    # ].to_numpy()
     fragments, fragmeta = index_fragments(
         pseudomsms.precursors,
         pseudomsms.fragments,
@@ -98,9 +106,6 @@ def msms2mgf(
     if verbose:
         print("Calculating how many bytes each spectrum will take per thread.")
 
-    # fragment_index = precursors[
-    #     ["fragment_spectrum_start", "fragment_spectrum_end"]
-    # ].to_numpy()
     numba.set_num_threads(threads_cnt)
     if verbose:
         print("Gathering fragment stats.")
