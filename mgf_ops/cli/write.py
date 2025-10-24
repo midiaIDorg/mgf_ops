@@ -13,9 +13,11 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import tomllib
-from mmapped_df import GroupedIndex
+
+# from mmapped_df import GroupedIndex
 from numba_progress import ProgressBar
-from pandas_ops.io import read_df
+
+# from pandas_ops.io import read_df
 
 # TODO: add LexicographicIndex with its progressbar.
 
@@ -146,15 +148,10 @@ def write_mgf(
         "{fragment_stats_path}" in conf["ms2"]
     ), f"The config entry `ms2` must be a query containing `{{fragment_stats_path}}` wildcard to get filled automatically with proper file system path."
 
-    if verbose:
-        print("Gathering precursor stats.")
-
     precursor_stats = duckdb.query(
         conf["ms1"].replace("{precursor_stats_path}", str(precursor_cluster_stats))
     ).df()
 
-    if verbose:
-        print("Gathering fragment stats.")
     fragment_stats = duckdb.query(
         conf["ms2"].replace("{fragment_stats_path}", str(fragment_cluster_stats))
     ).df()

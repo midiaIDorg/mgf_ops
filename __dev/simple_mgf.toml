@@ -1,0 +1,24 @@
+# BEGIN IONS\nTITLE={dataset} idx={} frame={} scan={} tof={} iim={} I={}\nPEPMASS={}\nRTINSECONDS={}\nCHARGE=2+\n',
+
+ms1_header_sql="""
+-- For Fragpipe/SAGE.
+-- The sql needs to produce columns 'header' and 'header_len', so do not touch this.
+-- Adjust the arguements to format function at will.
+
+SELECT
+printf(
+    'BEGIN IONS\nTITLE={dataset} idx=%d frame=%d scan=%d tof=%d iim=%.4f I=%d\nPEPMASS=%.4f\nRTINSECONDS=%.3f\nCHARGE=2+\n',
+    original_idx,
+    frame,
+    scan,
+    tof,
+    inv_ion_mobility,
+    intensity,
+    mz,
+    rt
+) AS header,
+CAST(length(header) AS uinteger) AS header_len 
+FROM 'precursors'
+"""
+fragment_mz_digits = 4
+endions="END IONS\n\n\n"

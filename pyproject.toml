@@ -13,13 +13,19 @@ authors=[
 ]
 dependencies = [
     "click" ,
-    "toml",
     "duckdb",
+    "pandas",
     "numpy",
     "numba",
     "numba_progress",
-    "pandas_ops",
-    "mmapped_df",
+    "mmappet @git+https://github.com/michalsta/mmappet.git",
+    "dictodot @git+https://github.com/MatteoLacki/dictodot.git",
+    "tqdm",
+]
+[project.optional-dependencies]
+dev = [
+    "ipython",
+    "matplotlib",
 ]
 
 [project.scripts]
