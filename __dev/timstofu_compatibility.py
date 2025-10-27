@@ -61,14 +61,29 @@ if DEVEL:
 # pseudomsms.fragments.intensity.max()
 # count1D
 
+from mgf_ops.indexing import get_index
 from mgf_ops.indexing import index_fragments
 from mgf_ops.indexing import index_intensities
 from mgf_ops.indexing import index_mzs
 from mgf_ops.indexing import index_precursors
 
+from mgf_ops.indexing import strSeries2ascii
+from mgf_ops.stats import divide_indices
 from mgf_ops.str_ops import ascii2str
 from mgf_ops.str_ops import str2ascii
+from numpy.typing import NDArray
 from tqdm import tqdm
+
+from mgf_ops.indexing import get_intensity_indexes
+from mgf_ops.indexing import get_mz_indexes
+
+
+import pandas as pd
+
+from mgf_ops.math import len_of_integer_part
+from mgf_ops.math import minmax
+from mgf_ops.stats import count_per_batch
+from mgf_ops.stats import count_per_batch
 
 
 def msms2mgf(
@@ -82,73 +97,87 @@ def msms2mgf(
         print("Using the following MGF config:")
         pprint(config)
 
-    # TODO: how the heck can this be divided into chunks if I need to divide that with precursors???? fix that chunking.
+    # TODO: think...
+    print(f"Working with {len(pseudomsms.precursors):_} precursor peaks.")
+    print(f"Working with {len(pseudomsms.fragments.mz):_} fragment peaks.")
 
-    # INSTEAD: USE THIS BELOW AND SPLIT THAT AND THEN COUNT ON THESE CHUNKS....,
-    # OR, BETTER, USE THIS CHUNKING AND FIND OUT WHICH PRECURSORS ARE INVOLVED.
+    MZ = get_mz_indexes(pseudomsms.fragments.mz, config.fragment_mz_digits)
+    INTENSITY = get_intensity_indexes(pseudomsms.fragments.intensity)
 
-    # fragment_index = precursors[
-    #     ["fragment_spectrum_start", "fragment_spectrum_end"]
-    # ].to_numpy()
-    fragments, fragmeta = index_fragments(
-        pseudomsms.precursors,
-        pseudomsms.fragments,
-        pseudomsms.meta.tof2mz_arr,
-        config.fragment_mz_digits,
-    )
-    fragmeta.mz_intensity_pair_cnt_per_batch
-    headers = index_precursors(pseudomsms.precursors, config.ms1_header_sql)
+    # now, need to go fru (m/z, intensity) pairs and quantify them per precursor.
+    # pseudomsms.fragments
+    # int_mz_to_hash = MZ.int_mz_to_hash
+    # mz_lens = MZ.str_len
+    # intensity_to_hash = INTENSITY.intensity_to_hash
+    # intensity_lens = INTENSITY.str_len
+    # fragment_mz_digits = config.fragment_mz_digits
+    # precursor_to_frag_idx = pseudomsms.precursors.fragment_spectrum_start.to_numpy()
+    # precursor_to_frag_cnt = pseudomsms.precursors.fragment_event_cnt.to_numpy()
 
-    k = 1000
-    ascii2str(headers.ascii[headers.idx[k] : headers.idx[k + 1]])
+    @numba.njit(parallel=True)
+    def count_ascii_per_pair(
+        precursor_to_frag_idx,
+        precursor_to_frag_cnt,
+        fragment_mz_digits,
+        mzs,
+        int_mz_to_hash,
+        mz_lens,
+        intensities,
+        intensity_to_hash,
+        intensity_lens,
+        additional_bytes_per_pair=2,  # " " and "\n"
+        progress=None,
+    ):
+        precursors_cnt = len(precursor_to_frag_cnt)
+        assert precursors_cnt == len(precursor_to_frag_idx)
+
+        mz_mult = 10.0**fragment_mz_digits
+        counts = np.zeros(precursors_cnt, np.uint8)
+        for i in numba.prange(precursors_cnt):
+            s = precursor_to_frag_idx[i]
+            cnt = precursor_to_frag_cnt[i]
+            for frag_idx in range(s, s + cnt):
+                mz = mzs[frag_idx]
+                intensity = intensities[frag_idx]
+                int_mz = int(mz * mz_mult)
+                counts[i] += (
+                    mz_lens[int_mz_to_hash[int_mz]]
+                    + intensity_lens[intensity_to_hash[intensity]]
+                    + additional_bytes_per_pair
+                )
+            if progress is not None:
+                progress.update(1)
+        return counts
+
+    # to config
+    _SEPARATOR_ = str2ascii(" ")
+    _NEWLINE_ = str2ascii("\n")
     _END_IONS_ = str2ascii(config["endions"])
 
-    if verbose:
-        print("Calculating how many bytes each spectrum will take per thread.")
+    with ProgressBar(
+        total=len(pseudomsms.precursors),
+        desc="Counting ASCI lens per precursor.",
+    ) as progress:
+        fragments_ascii_cnts = count_ascii_per_pair(
+            precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
+            precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
+            fragment_mz_digits=config.fragment_mz_digits,
+            mzs=pseudomsms.fragments.mz,
+            int_mz_to_hash=MZ.int_mz_to_hash,
+            mz_lens=MZ.str_len,
+            intensities=pseudomsms.fragments.intensity,
+            intensity_to_hash=INTENSITY.intensity_to_hash,
+            intensity_lens=INTENSITY.str_len,
+            additional_bytes_per_pair=len(_SEPARATOR_) + len(_NEWLINE_),
+            progress=progress,
+        )
 
-    numba.set_num_threads(threads_cnt)
-    if verbose:
-        print("Gathering fragment stats.")
+    headers = index_precursors(pseudomsms.precursors, config.ms1_header_sql)
 
-    # fragment_stats = duckdb.query(
-    #     conf["ms2"].replace("{fragment_stats_path}", str(fragment_cluster_stats))
-    # ).df()
+    byte_cnt_per_spectrum = headers.size + fragments_ascii_cnts + len(_END_IONS_)
 
-    spectra_cnt = len(pseudomsms.precursors)
-
-    @numba.njit(boundscheck=True, parallel=True)
-    def get_spectra_byte_counts(
-        spectra_cnt,
-        MS1_ClusterID_to_start_fragments,
-        MS1_ClusterID_to_fragments_cnt,
-        MS1_ClusterID_to_header_len,
-        MS2_ClusterIDs,
-        MS2_ClusterID_to_mz_intensity_len,
-        _END_IONS_len,
-    ) -> npt.NDArray:
-        byte_counts = np.zeros(shape=spectra_cnt, dtype=np.uint64)
-
-        for i in numba.prange(len(MS1_ClusterIDs)):
-            MS1_ClusterID = MS1_ClusterIDs[i]
-            fragments_start = MS1_ClusterID_to_start_fragments[MS1_ClusterID]
-            fragments_end = (
-                fragments_start + MS1_ClusterID_to_fragments_cnt[MS1_ClusterID]
-            )
-            byte_cnt = MS1_ClusterID_to_header_len[MS1_ClusterID]
-            for _MS2_ClusterID_idx_ in range(fragments_start, fragments_end):
-                MS2_ClusterID = MS2_ClusterIDs[_MS2_ClusterID_idx_]
-                byte_cnt += MS2_ClusterID_to_mz_intensity_len[MS2_ClusterID]
-            byte_cnt += _END_IONS_len
-            byte_counts[MS1_ClusterID] = byte_cnt
-        return byte_counts
-
-    total_bytes = np.sum(MS1_ClusterID_to_byte_cnt[MS1_ClusterIDs])
-
-    assert total_bytes == np.sum(
-        MS1_ClusterID_to_byte_cnt
-    ), "Total number of bytes inconsisten with direct calculation."
-    if verbose:
-        print(f"The MGF will take {np.round(total_bytes / 1_000_000, 2):_} MB.")
+    total_byte_cnt = byte_cnt_per_spectrum.sum()
+    print(f"MGF will take {total_byte_cnt / 1024**2:_.2f} MiB.")
 
     mgf = np.memmap(
         out_mgf,

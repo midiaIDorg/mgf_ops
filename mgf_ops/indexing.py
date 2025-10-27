@@ -5,7 +5,11 @@ import pandas as pd
 
 from dictodot import DotDict
 from numpy.typing import NDArray
+from typing import Any
 
+
+from mgf_ops.math import count_floats
+from mgf_ops.math import minmax
 from mgf_ops.stats import count_per_batch
 
 
@@ -34,8 +38,10 @@ def get_index(counts: NDArray, index: NDArray | None = None) -> NDArray:
     return index
 
 
-def strSeries2ascii(xx: pd.Series) -> NDArray:
-    return np.frombuffer(xx.str.cat().encode("ascii"), dtype=np.uint8)
+def strSeries2ascii(xx: pd.Series | NDArray) -> NDArray:
+    return np.frombuffer(
+        pd.Series(xx, copy=False).str.cat().encode("ascii"), dtype=np.uint8
+    )
 
 
 def index_mzs(
@@ -111,6 +117,7 @@ def index_precursors(
     duck_con.register("precursors", precursors)
     precursor_stats = duck_con.query(ms1_header_sql).df()
     return DotDict(
+        size=precursor_stats.header_len.to_numpy(),
         idx=get_index(precursor_stats.header_len.to_numpy()),
         ascii=strSeries2ascii(precursor_stats.header),
     )
@@ -161,3 +168,54 @@ def index_fragments(
                 )
             ) < 10.0 ** (-(fragment_mz_digits - 1))
     return index, meta
+
+
+def get_mz_indexes(
+    mzs: NDArray[float],
+    mz_digits: int = 3,
+    duck_con: duckdb.DuckDBPyConnection | None = None,
+) -> DotDict[str, Any]:
+    R = DotDict()
+    R.min_mz, R.max_mz = minmax(mzs)
+    assert isinstance(mz_digits, int)
+    assert mz_digits > 0
+    mult = 10.0**mz_digits
+
+    int_mz_counts = np.zeros(int(R.max_mz * mult) + 1, np.uint32)
+    count_floats(mzs, int_mz_counts, mult)
+
+    R.int_mz = int_mz_counts.nonzero()[0]
+    R.count = int_mz_counts[R.int_mz]
+
+    if duck_con is None:
+        duck_con = duckdb.connect()
+
+    duck_con.register("X", pd.DataFrame(dict(int_mz=R.int_mz), copy=False))
+
+    sql = f"""
+    SELECT
+    printf('%.{mz_digits}f', int_mz / {mult}) AS str,
+    CAST(length(str) AS uinteger) AS str_len
+    FROM 'X'
+    """
+    for c, v in duck_con.query(sql).df().items():
+        R[c] = v.to_numpy()
+
+    R.hash_to_ascii_idx = get_index(R.str_len)
+    R.ascii = strSeries2ascii(R.str)
+    R.int_mz_to_hash = int_mz_counts  # reusing space
+    R.int_mz_to_hash[R.int_mz] = np.arange(len(R.int_mz))
+
+    return R
+
+
+def get_intensity_indexes(intensities: NDArray[int]) -> DotDict[str, Any]:
+    intensity_cnts = count_per_batch(intensities).sum(0)
+    R = DotDict(observed=intensity_cnts.nonzero()[0])
+    intensity_cnts[R.observed] = np.arange(len(R.observed))
+    R.intensity_to_hash = intensity_cnts
+    R.str = R.observed.astype(str)
+    R.str_len = np.char.str_len(R.str)
+    R.hash_to_ascii_idx = get_index(R.str_len)
+    R.ascii = strSeries2ascii(R.str)
+    return R

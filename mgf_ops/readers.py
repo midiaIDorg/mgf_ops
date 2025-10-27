@@ -10,14 +10,12 @@ from pathlib import Path
 # folder = "/home/matteo/tmp/top_prob_pseudo.msms"
 def read_msms(folder: Path | str):
     folder = Path(folder)
-    with open(folder / "meta.pkl", "rb") as h:
-        return DotDict(
-            precursors=pd.read_parquet(folder / "precursors.parquet"),
-            fragments=DotDict(
-                mmappet.open_dataset_dct(folder / "fragment_spectra.mmappet")
-            ),
-            meta=pickle.load(h),
-        )
+    return DotDict(
+        precursors=pd.read_parquet(folder / "precursors.parquet"),
+        fragments=DotDict(
+            mmappet.open_dataset_dct(folder / "fragment_spectra.mmappet")
+        ),
+    )
 
 
 # read_msms(folder)
