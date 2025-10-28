@@ -15,7 +15,12 @@ from numba_progress import ProgressBar
 from mgf_ops.indexing import count_ascii_per_fragment_pair
 from mgf_ops.indexing import fill_mgf
 from mgf_ops.indexing import get_index
+from mgf_ops.indexing import get_intensity_indexes
+from mgf_ops.indexing import get_mz_indexes
+from mgf_ops.indexing import index_precursors
 from mgf_ops.readers import parse_inputs_for_msms2mgf
+from mgf_ops.str_ops import ascii2str
+from mgf_ops.str_ops import str2ascii
 
 DEVEL = False
 
@@ -49,32 +54,6 @@ if DEVEL:
             verbose=True,
         )
     )
-
-
-from mgf_ops.indexing import index_fragments
-from mgf_ops.indexing import index_intensities
-from mgf_ops.indexing import index_mzs
-
-
-from mgf_ops.indexing import index_precursors
-
-from mgf_ops.indexing import strSeries2ascii
-from mgf_ops.stats import divide_indices
-from mgf_ops.str_ops import ascii2str
-from mgf_ops.str_ops import str2ascii
-from numpy.typing import NDArray
-from tqdm import tqdm
-
-from mgf_ops.indexing import get_intensity_indexes
-from mgf_ops.indexing import get_mz_indexes
-
-
-import pandas as pd
-
-from mgf_ops.math import len_of_integer_part
-from mgf_ops.math import minmax
-from mgf_ops.stats import count_per_batch
-from mgf_ops.stats import count_per_batch
 
 
 def msms2mgf(
@@ -163,16 +142,9 @@ def msms2mgf(
     assert assertions.all()
     mgf.flush()
 
-    from pprint import pprint
-
-    pprint(ascii2str(mgf[:350]))
-    pprint(ascii2str(mgf[-300:]))
-
     if verbose:
         print("Dumped mgf.")
 
-
-# from pprint import pprint
 
 # spectrum_direct = get_direct_spectrum(
 #     spec_id, config.fragment_mz_digits, pseudomsms, headers, config.endions
