@@ -86,6 +86,9 @@ from mgf_ops.stats import count_per_batch
 from mgf_ops.stats import count_per_batch
 
 
+from numpy.testing import assert_equal
+
+
 def msms2mgf(
     mgf_path: Path,
     pseudomsms: DotDict,
@@ -104,18 +107,8 @@ def msms2mgf(
     MZ = get_mz_indexes(pseudomsms.fragments.mz, config.fragment_mz_digits)
     INTENSITY = get_intensity_indexes(pseudomsms.fragments.intensity)
 
-    # now, need to go fru (m/z, intensity) pairs and quantify them per precursor.
-    # pseudomsms.fragments
-    # int_mz_to_hash = MZ.int_mz_to_hash
-    # mz_lens = MZ.str_len
-    # intensity_to_hash = INTENSITY.intensity_to_hash
-    # intensity_lens = INTENSITY.str_len
-    # fragment_mz_digits = config.fragment_mz_digits
-    # precursor_to_frag_idx = pseudomsms.precursors.fragment_spectrum_start.to_numpy()
-    # precursor_to_frag_cnt = pseudomsms.precursors.fragment_event_cnt.to_numpy()
-
-    @numba.njit(parallel=True)
-    def count_ascii_per_pair(
+    @numba.njit(parallel=True, boundscheck=True)
+    def count_ascii_per_fragment_pair(
         precursor_to_frag_idx,
         precursor_to_frag_cnt,
         fragment_mz_digits,
@@ -132,7 +125,7 @@ def msms2mgf(
         assert precursors_cnt == len(precursor_to_frag_idx)
 
         mz_mult = 10.0**fragment_mz_digits
-        counts = np.zeros(precursors_cnt, np.uint8)
+        counts = np.zeros(precursors_cnt, np.uintp)
         for i in numba.prange(precursors_cnt):
             s = precursor_to_frag_idx[i]
             cnt = precursor_to_frag_cnt[i]
@@ -150,15 +143,15 @@ def msms2mgf(
         return counts
 
     # to config
-    _SEPARATOR_ = str2ascii(" ")
-    _NEWLINE_ = str2ascii("\n")
-    _END_IONS_ = str2ascii(config["endions"])
+    separator = str2ascii(" ")
+    newline = str2ascii("\n")
+    end_ions = str2ascii(config["endions"])
 
     with ProgressBar(
         total=len(pseudomsms.precursors),
         desc="Counting ASCI lens per precursor.",
     ) as progress:
-        fragments_ascii_cnts = count_ascii_per_pair(
+        fragments_ascii_cnts = count_ascii_per_fragment_pair(
             precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
             precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
             fragment_mz_digits=config.fragment_mz_digits,
@@ -168,72 +161,209 @@ def msms2mgf(
             intensities=pseudomsms.fragments.intensity,
             intensity_to_hash=INTENSITY.intensity_to_hash,
             intensity_lens=INTENSITY.str_len,
-            additional_bytes_per_pair=len(_SEPARATOR_) + len(_NEWLINE_),
+            additional_bytes_per_pair=len(separator) + len(newline),
             progress=progress,
         )
 
     headers = index_precursors(pseudomsms.precursors, config.ms1_header_sql)
+    # assert_equal(np.char.str_len(headers.header.astype(str)), headers.size)
 
-    byte_cnt_per_spectrum = headers.size + fragments_ascii_cnts + len(_END_IONS_)
+    byte_cnt_per_spectrum = headers.size + fragments_ascii_cnts + len(end_ions)
+    spectrum_idx = get_index(byte_cnt_per_spectrum)
+
+    ## slightly worrisome
+    # %%time
+    # obs_mzs, obs_mzs_cnts = np.unique(pseudomsms.fragments.mz, return_counts=True)
+    # assert_equal(MZ.count, obs_mzs_cnts)
+    # yy = count_per_batch(byte_cnt_per_spectrum).sum(0)
+    # xx = yy.nonzero()[0]
+    # yy = yy[xx]
+    # import matplotlib.pyplot as plt
+    # plt.scatter(xx, yy)
+    # plt.show()
+
+    spec_id = 0
+    fragment_mz_digits = config.fragment_mz_digits
+
+    def get_direct_spectrum(
+        spec_id,
+        fragment_mz_digits,
+        pseudomsms,
+        headers,
+        end_ions,
+        sep=" ",
+        newlajn="\n",
+    ):
+        s_frag = pseudomsms.precursors.fragment_spectrum_start.iloc[spec_id]
+        e_frag = s_frag + pseudomsms.precursors.fragment_event_cnt.iloc[spec_id]
+        frag_mzs = pseudomsms.fragments.mz[s_frag:e_frag]
+        frag_intensities = pseudomsms.fragments.intensity[s_frag:e_frag]
+        str_temp = "{mz:.{fragment_mz_digits}f}{sep}{I}{newlajn}".replace(
+            "{fragment_mz_digits}", str(fragment_mz_digits)
+        )
+        frag_tuples_repr = "".join(
+            str_temp.format(mz=mz, I=I, sep=sep, newlajn=newlajn)
+            for mz, I in zip(frag_mzs, frag_intensities)
+        )
+        header = headers.header[spec_id]
+        return f"{header}{frag_tuples_repr}{end_ions}"
+
+    # from pprint import pprint
+
+    # spectrum_direct = get_direct_spectrum(
+    #     spec_id, config.fragment_mz_digits, pseudomsms, headers, config.endions
+    # )
+    # with open(f"/tmp/spec_{spec_id}.mgf", "w") as f:
+    #     f.write(spectrum_direct)
+
+    # pprint(spectrum_direct)
+    # len(spectrum_direct)
+
+    # spec_id = 10253
+
+    # buggy_spec = ascii2str(mgf[spectrum_idx[spec_id] : spectrum_idx[spec_id + 1]])
+    # with open(f"/tmp/buggy_spec_{spec_id}.mgf", "w") as f:
+    #     f.write(buggy_spec)
 
     total_byte_cnt = byte_cnt_per_spectrum.sum()
-    print(f"MGF will take {total_byte_cnt / 1024**2:_.2f} MiB.")
+    print(
+        f"MGF will take {total_byte_cnt:_} bytes, or {total_byte_cnt / 1024**2:_.2f} MiB."
+    )
 
     mgf = np.memmap(
-        out_mgf,
+        mgf_path,
         mode="w+",
-        shape=total_bytes,
+        shape=total_byte_cnt,
         dtype=np.uint8,
     )
 
-    MS1_ClusterID_to_header_starts = make_index(precursor_stats.header_len.to_numpy())
-    MS1_ClusterID_to_byte_idx = make_index(MS1_ClusterID_to_byte_cnt)
-    MS1_ClusterID_to_bytes = np.frombuffer(
-        precursor_stats.header.str.cat().encode("ascii"), dtype=np.uint8
-    )
-    MS2_ClusterID_to_bytes = np.frombuffer(
-        fragment_stats.mz_intensity.str.cat().encode("ascii"), dtype=np.uint8
-    )
-    MS2_ClusterID_to_mz_intensity_starts = make_index(
-        fragment_stats.mz_intensity_len.to_numpy()
-    )
+    # would be comfy to have something like a final idx
 
-    if verbose:
-        print("Dumping MGF to file in a hacky custom way.")
+    precursor_to_frag_idx = pseudomsms.precursors.fragment_spectrum_start.to_numpy()
+    precursor_to_frag_cnt = pseudomsms.precursors.fragment_event_cnt.to_numpy()
+    headers_idx = headers.idx
+    headers_ascii = headers.ascii
+    fragment_mz_digits = config.fragment_mz_digits
+    mzs = pseudomsms.fragments.mz
+    int_mz_to_hash = MZ.int_mz_to_hash
+    mz_hash_to_ascii = MZ.hash_to_ascii_idx
+    mz_ascii = MZ.ascii
+    intensities = pseudomsms.fragments.intensity
+    intensity_to_hash = INTENSITY.intensity_to_hash
+    intensity_hash_to_ascii = INTENSITY.hash_to_ascii_idx
+    intensity_ascii = INTENSITY.ascii
+    prec_idx = 0
 
-    # TODO: Can this be represented as
+    @numba.njit(parallel=True, boundscheck=True)
+    def fill_mgf(
+        mgf,
+        spectrum_idx,
+        precursor_to_frag_idx,
+        precursor_to_frag_cnt,
+        headers_idx,
+        headers_ascii,
+        fragment_mz_digits,
+        mzs,
+        int_mz_to_hash,
+        mz_hash_to_ascii,
+        mz_ascii,
+        intensities,
+        intensity_to_hash,
+        intensity_hash_to_ascii,
+        intensity_ascii,
+        separator,
+        newline,
+        end_ions,
+        progress=None,
+    ):
+        precursors_cnt = len(precursor_to_frag_cnt)
+        assert precursors_cnt == len(precursor_to_frag_idx)
+
+        mz_mult = 10.0**fragment_mz_digits
+        assertions = np.empty(precursors_cnt, np.bool_)
+        for prec_idx in numba.prange(precursors_cnt):
+            mgf_idx = int(spectrum_idx[prec_idx])
+            e_mgf = spectrum_idx[prec_idx + 1]
+
+            # header
+            s_header = headers_idx[prec_idx]
+            e_header = headers_idx[prec_idx + 1]
+            for header_idx in range(s_header, e_header):
+                mgf[mgf_idx] = headers_ascii[header_idx]
+                mgf_idx += 1
+
+            s_frags = precursor_to_frag_idx[prec_idx]
+            e_frags = s_frags + precursor_to_frag_cnt[prec_idx]
+            for frag_idx in range(s_frags, e_frags):
+                # f"{mz}{separator}{intensity}{newline}"
+                mz_hash = int_mz_to_hash[int(mzs[frag_idx] * mz_mult)]
+                s_mz = mz_hash_to_ascii[mz_hash]
+                e_mz = mz_hash_to_ascii[mz_hash + 1]
+                for mz_idx in range(s_mz, e_mz):
+                    mgf[mgf_idx] = mz_ascii[mz_idx]
+                    mgf_idx += 1
+
+                for s in separator:
+                    mgf[mgf_idx] = s
+                    mgf_idx += 1
+
+                intensity_hash = intensity_to_hash[intensities[frag_idx]]
+                s_inten = intensity_hash_to_ascii[intensity_hash]
+                e_inten = intensity_hash_to_ascii[intensity_hash + 1]
+                for inten_idx in range(s_inten, e_inten):
+                    mgf[mgf_idx] = intensity_ascii[inten_idx]
+                    mgf_idx += 1
+
+                for n in newline:
+                    mgf[mgf_idx] = n
+                    mgf_idx += 1
+
+            # footer
+            for e in end_ions:
+                mgf[mgf_idx] = e
+                mgf_idx += 1
+
+            assertions[prec_idx] = mgf_idx == e_mgf
+
+            if progress is not None:
+                progress.update(1)
+
+        return assertions
+
+    # ascii2str(mgf[:mgf_idx])
+
     with ProgressBar(
-        total=len(MS1_ClusterIDs),
-        desc="Dumping spectra",
-        disable=not verbose,
+        total=len(pseudomsms.precursors),
+        desc="Filling MGF with ASCII",
     ) as progress:
-        good = write_spectra(
+        assertions = fill_mgf(
             mgf=mgf,
-            MS1_ClusterIDs=MS1_ClusterIDs,
-            MS1_ClusterID_to_start_fragments=edges_idx.index,
-            MS1_ClusterID_to_fragments_cnt=edges_idx.counts,
-            MS1_ClusterID_to_header_starts=MS1_ClusterID_to_header_starts,
-            MS1_ClusterID_to_header_len=precursor_stats.header_len.to_numpy(),
-            MS1_ClusterID_to_byte_idx=MS1_ClusterID_to_byte_idx,
-            MS1_ClusterID_to_byte_cnt=MS1_ClusterID_to_byte_cnt,
-            MS1_headers=MS1_ClusterID_to_bytes,
-            MS2_ClusterIDs=edges.MS2_ClusterID.to_numpy(),
-            MS2_ClusterID_to_bytes=MS2_ClusterID_to_bytes,
-            MS2_ClusterID_to_mz_intensity_starts=MS2_ClusterID_to_mz_intensity_starts,
-            MS2_ClusterID_to_mz_intensity_len=fragment_stats.mz_intensity_len.to_numpy(),
-            _END_IONS_=_END_IONS_,
-            progress_proxy=progress,
+            spectrum_idx=spectrum_idx,
+            precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
+            precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
+            headers_idx=headers.idx,
+            headers_ascii=headers.ascii,
+            fragment_mz_digits=config.fragment_mz_digits,
+            mzs=pseudomsms.fragments.mz,
+            int_mz_to_hash=MZ.int_mz_to_hash,
+            mz_hash_to_ascii=MZ.hash_to_ascii_idx,
+            mz_ascii=MZ.ascii,
+            intensities=pseudomsms.fragments.intensity,
+            intensity_to_hash=INTENSITY.intensity_to_hash,
+            intensity_hash_to_ascii=INTENSITY.hash_to_ascii_idx,
+            intensity_ascii=INTENSITY.ascii,
+            separator=separator,
+            newline=newline,
+            end_ions=end_ions,
+            progress=progress,
         )
-    assert np.all(good), "Some spectra took more bytes than anticipated."
 
     mgf.flush()
 
+    from pprint import pprint
+
+    pprint(ascii2str(mgf[:350]))
+    pprint(ascii2str(mgf[-300:]))
+
     if verbose:
         print("Dumped mgf.")
-
-
-def make_index(counts):
-    index = np.empty(shape=(counts.shape[0] + 1,), dtype=np.uint64)
-    index[0] = 0
-    np.cumsum(counts, out=index[1:])
-    return index

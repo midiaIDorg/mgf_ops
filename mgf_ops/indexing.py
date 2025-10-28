@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from dictodot import DotDict
+from numpy.testing import assert_equal
 from numpy.typing import NDArray
 from typing import Any
 
@@ -28,7 +29,7 @@ def get_index(counts: NDArray, index: NDArray | None = None) -> NDArray:
         np.array: A table with 0 and then cumulated counts.
     """
     if index is None:
-        index = np.empty(shape=len(counts) + 1, dtype=np.uint32)
+        index = np.empty(shape=len(counts) + 1, dtype=np.int64)
     assert len(index) == len(counts) + 1
     index[0] = 0
     i = 1
@@ -120,6 +121,7 @@ def index_precursors(
         size=precursor_stats.header_len.to_numpy(),
         idx=get_index(precursor_stats.header_len.to_numpy()),
         ascii=strSeries2ascii(precursor_stats.header),
+        header=precursor_stats.header.to_numpy(),
     )
 
 
@@ -140,7 +142,7 @@ def index_fragments(
     for c in fragments:
         meta[c] = meta[f"{c}_counts_per_batch"].sum(0)
     meta.mz_intensity_pair_cnt_per_batch = meta.intensity_counts_per_batch.sum(1)
-    np.testing.assert_equal(
+    assert_equal(
         meta.mz_intensity_pair_cnt_per_batch,
         meta.tof_counts_per_batch.sum(1),
         err_msg="The number of tofs and intensities differ per batch.",
@@ -209,6 +211,30 @@ def get_mz_indexes(
     return R
 
 
+def test_get_mz_indexes():
+    mzs = np.array(
+        [100.01, 100.02, 100.003, 100.002, 101.122, 1020.2132, 0.0, 0.121, 10.12]
+    )
+    mz_digits = 2
+    mult = 10.0**2
+    MZ = get_mz_indexes(mzs, mz_digits)
+    assert MZ.min_mz == mzs.min()
+    assert MZ.max_mz == mzs.max()
+    unique_sorted_mzs, mz_counts = np.unique(
+        (np.sort(mzs) * mult).round().astype(int), return_counts=True
+    )
+    assert_equal(MZ.int_mz, unique_sorted_mzs)
+    unique_sorted_mzs_str = np.array(
+        [f"{m / mult:.2f}" for m in unique_sorted_mzs]
+    ).astype(str)
+    assert_equal(MZ.str.astype(str), unique_sorted_mzs_str)
+    assert_equal(np.char.str_len(MZ.str.astype(str)), MZ.str_len)
+    for i in range(len(unique_sorted_mzs_str)):
+        mz_str = unique_sorted_mzs_str[i]
+        _ascii = MZ.ascii[MZ.hash_to_ascii_idx[i] : MZ.hash_to_ascii_idx[i + 1]]
+        assert ascii2str(_ascii) == mz_str
+
+
 def get_intensity_indexes(intensities: NDArray[int]) -> DotDict[str, Any]:
     intensity_cnts = count_per_batch(intensities).sum(0)
     R = DotDict(observed=intensity_cnts.nonzero()[0])
@@ -219,3 +245,17 @@ def get_intensity_indexes(intensities: NDArray[int]) -> DotDict[str, Any]:
     R.hash_to_ascii_idx = get_index(R.str_len)
     R.ascii = strSeries2ascii(R.str)
     return R
+
+
+def test_get_intensity_indexes():
+    intensities = np.array([1, 0, 120, 24, 2432, 3244, 242, 10])
+    I = get_intensity_indexes(intensities)
+    intensities_sorted = np.sort(intensities)
+    assert_equal(intensities_sorted, I.observed)
+    intensities_str = intensities_sorted.astype(str)
+    assert_equal(intensities_str, I.str)
+    assert_equal(np.char.str_len(intensities_str), np.char.str_len(I.str))
+    for i in range(len(I.str)):
+        assert I.str[i] == ascii2str(
+            I.ascii[I.hash_to_ascii_idx[i] : I.hash_to_ascii_idx[i + 1]]
+        )
