@@ -32,6 +32,7 @@ dev = [
 write_mgf = "mgf_ops.cli.write:write_mgf"
 split_mgf = "mgf_ops.cli.split:split_mgf"
 change_mgf_headers = "mgf_ops.cli.change:change_mgf_headers"
+msms2mgf = "mgf_ops.cli.msms:msms2mgf_cli"
 
 [project.urls]
 homepage="https://github.com/midiaIDorg/mgf_ops.git"

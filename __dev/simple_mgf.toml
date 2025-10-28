@@ -20,5 +20,9 @@ printf(
 CAST(length(header) AS uinteger) AS header_len 
 FROM 'precursors'
 """
-fragment_mz_digits = 3
-endions="END IONS\n\n\n"
+
+[fragments]
+mz_digits = 3
+mz_intensity_separator = " "
+after_intensity = "\n"
+end_ions="END IONS\n\n\n"
