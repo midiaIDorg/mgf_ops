@@ -7,7 +7,6 @@ from dictodot import DotDict
 from pathlib import Path
 
 
-# folder = "/home/matteo/tmp/top_prob_pseudo.msms"
 def read_msms(folder: Path | str):
     folder = Path(folder)
     return DotDict(
@@ -16,9 +15,6 @@ def read_msms(folder: Path | str):
             mmappet.open_dataset_dct(folder / "fragment_spectra.mmappet")
         ),
     )
-
-
-# read_msms(folder)
 
 
 def parse_inputs_for_msms2mgf(
