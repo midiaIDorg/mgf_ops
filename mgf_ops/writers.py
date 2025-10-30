@@ -87,6 +87,7 @@ def msms2mgf(
         print("Using the following MGF config:")
         pprint(config)
 
+    pseudomsms.precursors = pseudomsms.precursors.query("fragment_event_cnt > 0").copy()
     print(f"Working with {len(pseudomsms.precursors):_} precursor peaks.")
     print(f"Working with {len(pseudomsms.fragments.mz):_} fragment peaks.")
 

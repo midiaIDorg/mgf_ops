@@ -7,7 +7,7 @@ ms1_header_sql="""
 
 SELECT
 printf(
-    'BEGIN IONS\nTITLE={dataset} idx=%d frame=%d scan=%d tof=%d iim=%.4f I=%d\nPEPMASS=%.3f\nRTINSECONDS=%.3f\nCHARGE=2+\n',
+    'BEGIN IONS\nTITLE="{dataset} idx=%d frame=%d scan=%d tof=%d iim=%.4f I=%d"\nPEPMASS=%.3f\nRTINSECONDS=%.3f\nCHARGE=2+\n',
     original_idx,
     frame,
     scan,

@@ -2,25 +2,6 @@
 %load_ext autoreload
 %autoreload 2
 """
-from pprint import pprint
-
-import numba
-import numpy as np
-
-from mgf_ops.readers import parse_inputs_for_msms2mgf
-
-
-locals().update(
-    **parse_inputs_for_msms2mgf(
-        msms_folder="/home/matteo/tmp/top_prob_pseudo.msms",
-        config="/home/matteo/Projects/timstofu/mgf_ops/mgf_ops/__dev/simple_mgf.toml",
-        mgf_path="/home/matteo/tmp/top_prob_pseudo.mgf",
-        threads_cnt=numba.get_num_threads(),
-        dataset_name="B6699.d",
-        verbose=True,
-    )
-)
-
 
 spectrum_direct = get_direct_spectrum(
     spec_id, config.fragments.mz_digits, pseudomsms, headers, config.endions
