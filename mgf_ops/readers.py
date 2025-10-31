@@ -28,7 +28,7 @@ def parse_inputs_for_msms2mgf(
 ):
     res = DotDict()
     with open(config, "rb") as f:
-        config = DotDict.Recursive(tomllib.load(f))
+        config = DotDict.Recursive(tomllib.load(f)["msms2mgf"])
     if "{dataset}" in config.ms1_header_sql:
         config.ms1_header_sql = config.ms1_header_sql.replace("{dataset}", dataset_name)
     pseudomsms = read_msms(msms_folder)

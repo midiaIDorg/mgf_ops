@@ -6,6 +6,7 @@ import numpy.typing as npt
 from dictodot import DotDict
 from numba_progress import ProgressBar
 from pathlib import Path
+from pprint import pprint
 
 from mgf_ops.indexing import count_ascii_per_fragment_pair
 from mgf_ops.indexing import fill_mgf
