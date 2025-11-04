@@ -1,4 +1,6 @@
 dist
 *egg-info
 *__pycache__
-build
+buildi
+.snakemake_timestamp
+activate
