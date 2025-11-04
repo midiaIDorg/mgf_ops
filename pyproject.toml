@@ -21,6 +21,7 @@ dependencies = [
     "mmappet @git+https://github.com/michalsta/mmappet.git",
     "dictodot @git+https://github.com/MatteoLacki/dictodot.git",
     "tqdm",
+    "fastparquet",
 ]
 [project.optional-dependencies]
 dev = [
