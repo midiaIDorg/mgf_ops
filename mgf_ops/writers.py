@@ -1,5 +1,6 @@
 import numba
 import numpy as np
+import pandas as pd
 
 import numpy.typing as npt
 
@@ -117,6 +118,10 @@ def msms2mgf(
             additional_bytes_per_pair=len(separator) + len(newline),
             progress=progress,
         )
+
+    if verbose:
+        print("Used header:")
+        pprint(config.ms1_header_sql)
 
     headers = index_precursors(pseudomsms.precursors, config.ms1_header_sql)
     byte_cnt_per_spectrum = headers.size + fragments_ascii_cnts + len(end_ions)
