@@ -18,8 +18,8 @@ dependencies = [
     "numpy",
     "numba",
     "numba_progress",
-    "mmappet @git+https://github.com/michalsta/mmappet.git",
-    "dictodot @git+https://github.com/MatteoLacki/dictodot.git",
+    "mmappet",
+    "dictodot",
     "tqdm",
     "fastparquet",
 ]
