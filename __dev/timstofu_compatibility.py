@@ -1,8 +1,70 @@
 %load_ext autoreload
 %autoreload 2
-
 import pandas as pd
 import resource
+
+
+from mgf_ops.readers import open_pmsms
+from mgf_ops.readers import parse_inputs_for_msms2mgf
+
+pmsms = parse_inputs_for_msms2mgf(
+    msms_folder = "temp/F9477/correlation/pmsms.mmappet",
+    config = "configs/correlation.toml",
+    mgf_path = "temp/F9477/correlation/mgf.mgf",
+    threads_cnt = 16,
+    dataset_name = "F9477",
+    verbose = True,
+)
+
+
+venvs/common/bin/cut_and_index_precursors 
+
+
+
+msms_folder = "temp/F9477/correlation/pmsms.mmappet"
+config = "configs/correlation.toml"
+mgf_path = "temp/F9477/correlation/mgf.mgf"
+threads_cnt = 16
+dataset_name = "F9477"
+verbose = True
+
+import mmappet
+import tomllib
+
+from dictodot import DotDict
+from pathlib import Path
+
+
+
+precursors_path = "temp/F9477/correlation/pmsms.mmappet/precursors.parquet"
+index_path = "temp/F9477/correlation/pmsms.mmappet/dataindex.mmappet"
+output_precursors_path = "temp/F9477/correlation/pmsms.mmappet/precursors.parquet"
+
+
+
+
+
+def cut_precursors_and_add_indices(
+    precursors_path,
+    index_path,
+    output_precursors_path,
+) -> None:
+    precursors = pd.read_parquet(precursors_path)
+    idx = pd.DataFrame(mmappet.open_dataset_dct(index_path)).sort_values("ms1idx")
+    final_precursors = precursors.iloc[idx.ms1idx].copy()
+    final_precursors["fragment_event_cnt"] = idx.size
+    final_precursors["fragment_spectrum_start"] = idx.idx
+    final_precursors.to_parquet(output_precursors_path)
+
+
+
+
+assert idx_df.ms1idx.max() < len(pseudomsms.precursors)
+
+
+
+
+
 
 
 from mgf_ops.readers import parse_inputs_for_msms2mgf

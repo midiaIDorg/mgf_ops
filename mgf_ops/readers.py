@@ -39,10 +39,6 @@ def parse_inputs_for_msms2mgf(
     with open(config, "rb") as f:
         config = DotDict.Recursive(tomllib.load(f)["msms2mgf"])
     pseudomsms = open_pmsms(msms_folder)
-    if "idx" in pseudomsms:
-        pseudomsms.precursors["fragment_event_cnt"] = pseudomsms.idx.size
-        pseudomsms.precursors["fragment_spectrum_start"] = pseudomsms.idx.idx
-        pseudomsms.precursors = pseudomsms.precursors.iloc[pseudomsms.idx.ms1idx]
 
     return DotDict(
         pseudomsms=pseudomsms,
