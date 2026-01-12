@@ -10,7 +10,7 @@ from pathlib import Path
 # output_precursors_path = "temp/F9477/correlation/pmsms.mmappet/precursors.parquet"
 
 
-def postprocessing_pmsms(
+def cut_precursors_and_add_indices(
     precursors_path,
     index_path,
     output_precursors_path,
@@ -24,9 +24,7 @@ def postprocessing_pmsms(
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Post-process a pmsms folder: cut precursors and add indices add mzs ."
-    )
+    parser = argparse.ArgumentParser(description="Cut precursors and add indices.")
     parser.add_argument(
         "precursors_path",
         type=Path,
