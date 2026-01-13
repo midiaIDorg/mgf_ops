@@ -12,12 +12,12 @@ authors=[
     {name="Michał Piotr Startek",email="michalsta@mimuw.edu.pl"},
 ]
 dependencies = [
+    "numba",
+    "numba_progress",
+    "numpy",
     "click" ,
     "duckdb",
     "pandas",
-    "numpy",
-    "numba",
-    "numba_progress",
     "mmappet",
     "dictodot",
     "tqdm",
