@@ -16,7 +16,9 @@ def cut_precursors_and_add_indices(
     output_precursors_path,
 ) -> None:
     precursors = pd.read_parquet(precursors_path)
-    idx = pd.DataFrame(mmappet.open_dataset_dct(index_path)).sort_values("ms1idx")
+    idx = pd.DataFrame(mmappet.open_dataset_dct(index_path), copy=False).sort_values(
+        "ms1idx"
+    )
     final_precursors = precursors.iloc[idx.ms1idx].copy()
     final_precursors["fragment_event_cnt"] = idx["size"].to_numpy()
     final_precursors["fragment_spectrum_start"] = idx["idx"].to_numpy()
