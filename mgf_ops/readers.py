@@ -12,7 +12,9 @@ def open_pmsms(directory: str | Path) -> DotDict:
     return DotDict(
         fragments=DotDict(mmappet.open_dataset_dct(directory)),
         idx=DotDict(mmappet.open_dataset_dct(directory / "dataindex.mmappet")),
-        precursors=pd.read_parquet(directory / "precursors.parquet"),
+        precursors=pd.read_parquet(
+            directory / "filtered_precursors_with_nontrivial_ms2.parquet"
+        ),
     )
 
 

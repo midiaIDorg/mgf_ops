@@ -1,11 +1,15 @@
 import argparse
 import mmappet
+import numpy as np
 import pandas as pd
 
 from pathlib import Path
 
+pd.set_option("display.max_columns", None)
+pd.set_option("display.max_rows", 5)
 
-# precursors_path = "temp/F9477/correlation/transmitted_precursors.transprec/precursors.parquet"
+
+# precursors_path = "temp/F9477/correlation/transmitted_precursors.transprec/filtered_precursors.parquet"
 # index_path = "temp/F9477/correlation/pmsms.mmappet/dataindex.mmappet"
 # output_precursors_path = "temp/F9477/correlation/pmsms.mmappet/precursors.parquet"
 
@@ -16,13 +20,22 @@ def cut_precursors_and_add_indices(
     output_precursors_path,
 ) -> None:
     precursors = pd.read_parquet(precursors_path)
-    idx = pd.DataFrame(mmappet.open_dataset_dct(index_path), copy=False).sort_values(
-        "ms1idx"
+    idx = (
+        pd.DataFrame(mmappet.open_dataset_dct(index_path), copy=False)
+        .sort_values("ms1idx")
+        .query("size > 0")
+        .sort_values("idx")
     )
-    final_precursors = precursors.iloc[idx.ms1idx].copy()
+
+    final_precursors = precursors.iloc[
+        idx.ms1idx
+    ].copy()  # sorts precursors by reported spectra
     final_precursors["fragment_event_cnt"] = idx["size"].to_numpy()
     final_precursors["fragment_spectrum_start"] = idx["idx"].to_numpy()
+    assert np.all(np.diff(final_precursors.fragment_spectrum_start) > 0)
     final_precursors.to_parquet(output_precursors_path)
+    print("Filtered Precursors with Nontrivial MS2 Spectra:")
+    print(final_precursors)
 
 
 def main():
