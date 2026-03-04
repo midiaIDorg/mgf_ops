@@ -20,6 +20,7 @@ from mgf_ops.indexing import get_intensity_indexes
 from mgf_ops.indexing import get_mz_indexes
 from mgf_ops.indexing import index_precursors
 
+from mgf_ops.charges import explode_charge_codes
 from mgf_ops.str_ops import ascii2str
 from mgf_ops.str_ops import str2ascii
 
@@ -120,6 +121,124 @@ def msms2mgf(
     INTENSITY = get_intensity_indexes(pseudomsms.fragments.intensity)
 
     # to config
+    separator = str2ascii(config.fragments.mz_intensity_separator)
+    newline = str2ascii(config.fragments.after_intensity)
+    end_ions = str2ascii(config.fragments.end_ions)
+
+    with ProgressBar(
+        total=len(pseudomsms.precursors),
+        desc="Counting ASCI lens per precursor.",
+    ) as progress:
+        fragments_ascii_cnts = count_ascii_per_fragment_pair(
+            precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
+            precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
+            fragment_mz_digits=config.fragments.mz_digits,
+            mzs=pseudomsms.fragments.mz,
+            int_mz_to_hash=MZ.int_mz_to_hash,
+            mz_lens=MZ.str_len,
+            intensities=pseudomsms.fragments.intensity,
+            intensity_to_hash=INTENSITY.intensity_to_hash,
+            intensity_lens=INTENSITY.str_len,
+            additional_bytes_per_pair=len(separator) + len(newline),
+            progress=progress,
+        )
+
+    if verbose:
+        print("Used header:")
+        pprint(config.ms1_header_sql)
+
+    headers = index_precursors(pseudomsms.precursors, config.ms1_header_sql)
+    byte_cnt_per_spectrum = headers.size + fragments_ascii_cnts + len(end_ions)
+    spectrum_idx = get_index(byte_cnt_per_spectrum)
+
+    total_byte_cnt = byte_cnt_per_spectrum.sum()
+    print(
+        f"MGF will take {total_byte_cnt:_} bytes, or {total_byte_cnt / 1024**2:_.2f} MiB."
+    )
+
+    mgf = np.memmap(
+        out_mgf_path,
+        mode="w+",
+        shape=total_byte_cnt,
+        dtype=np.uint8,
+    )
+
+    with ProgressBar(
+        total=len(pseudomsms.precursors),
+        desc="Filling MGF with ASCII",
+    ) as progress:
+        assertions = fill_mgf(
+            mgf=mgf,
+            spectrum_idx=spectrum_idx,
+            precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
+            precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
+            headers_idx=headers.idx,
+            headers_ascii=headers.ascii,
+            fragment_mz_digits=config.fragments.mz_digits,
+            mzs=pseudomsms.fragments.mz,
+            int_mz_to_hash=MZ.int_mz_to_hash,
+            mz_hash_to_ascii=MZ.hash_to_ascii_idx,
+            mz_ascii=MZ.ascii,
+            intensities=pseudomsms.fragments.intensity,
+            intensity_to_hash=INTENSITY.intensity_to_hash,
+            intensity_hash_to_ascii=INTENSITY.hash_to_ascii_idx,
+            intensity_ascii=INTENSITY.ascii,
+            separator=separator,
+            newline=newline,
+            end_ions=end_ions,
+            progress=progress,
+        )
+
+    assert assertions.all()
+    mgf.flush()
+
+    if verbose:
+        print("Dumped mgf.")
+
+
+def expand_precursors_by_charges(precursors: pd.DataFrame) -> pd.DataFrame:
+    """Expand rows so each charge encoded in the `charges` int gets its own row.
+
+    E.g. a row with charges=12 becomes two rows with charge=1 and charge=2.
+    Uses explode_charge_codes() (Numba) to decode digits and build the index.
+    fragment_spectrum_start / fragment_event_cnt are duplicated so the downstream
+    pipeline writes identical fragment peaks for every charge.
+    """
+    ids, charges = explode_charge_codes(precursors["charges"].to_numpy())
+    expanded = precursors.iloc[ids].copy()
+    expanded["charge"] = np.array(charges, dtype=np.int64)
+    return expanded.drop(columns=["charges"]).reset_index(drop=True)
+
+
+def msms2mgf_multicharge(
+    pmsms_path: Path,
+    precursor_clusters_path: Path,
+    config_path: Path,
+    out_mgf_path: Path,
+    threads_cnt: int = numba.get_num_threads(),
+    verbose: bool = False,
+) -> None:
+    with open(config_path, "rb") as f:
+        config = tomllib.load(f)
+        config = DotDict.Recursive(config.get("msms2mgf", config))
+
+    pmsms_path = Path(pmsms_path)
+    pseudomsms = DotDict.Recursive(
+        dict(
+            fragments=mmappet.open_dataset_dct(pmsms_path),
+            idx=mmappet.open_dataset_dct(pmsms_path / "dataindex.mmappet"),
+            precursors=pd.read_parquet(precursor_clusters_path),
+        )
+    )
+
+    pseudomsms.precursors = pseudomsms.precursors.query("fragment_event_cnt > 0").copy()
+    pseudomsms.precursors = expand_precursors_by_charges(pseudomsms.precursors)
+    print(f"Working with {len(pseudomsms.precursors):_} precursor peaks (after charge expansion).")
+    print(f"Working with {len(pseudomsms.fragments.mz):_} fragment peaks.")
+
+    MZ = get_mz_indexes(pseudomsms.fragments.mz, config.fragments.mz_digits)
+    INTENSITY = get_intensity_indexes(pseudomsms.fragments.intensity)
+
     separator = str2ascii(config.fragments.mz_intensity_separator)
     newline = str2ascii(config.fragments.after_intensity)
     end_ions = str2ascii(config.fragments.end_ions)

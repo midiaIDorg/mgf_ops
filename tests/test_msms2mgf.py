@@ -12,7 +12,16 @@ import pandas as pd
 import mmappet
 from pathlib import Path
 
-from mgf_ops.writers import msms2mgf
+from mgf_ops.writers import msms2mgf, msms2mgf_multicharge
+
+
+def print_pmsms(pmsms_dir: Path) -> None:
+    frags = mmappet.open_dataset_dct(pmsms_dir)
+    idx = mmappet.open_dataset_dct(pmsms_dir / "dataindex.mmappet")
+    print("  fragments:")
+    print(pd.DataFrame(frags).to_string(index=False))
+    print("  dataindex:")
+    print(pd.DataFrame(idx).to_string(index=False))
 
 
 CONFIG_TOML = textwrap.dedent("""\
@@ -118,6 +127,11 @@ def parse_mgf(path: Path) -> list[dict]:
 def run_test(tmp: Path) -> None:
     pmsms_dir, prec_path = create_test_pmsms(tmp)
 
+    print("=== run_test: precursors ===")
+    print(pd.read_parquet(prec_path).to_string())
+    print("=== run_test: pmsms.mmappet ===")
+    print_pmsms(pmsms_dir)
+
     config_path = tmp / "config.toml"
     config_path.write_text(CONFIG_TOML)
 
@@ -129,6 +143,9 @@ def run_test(tmp: Path) -> None:
         config_path=config_path,
         out_mgf_path=out_mgf,
     )
+
+    print("=== run_test: out.mgf ===")
+    print(out_mgf.read_text())
 
     spectra = parse_mgf(out_mgf)
 
@@ -168,7 +185,96 @@ def run_test(tmp: Path) -> None:
     assert header_lines_1["CHARGE"] == "CHARGE=3+", f"CHARGE mismatch spectrum 1: {header_lines_1['CHARGE']}"
 
 
+def create_test_pmsms_multicharge(root: Path) -> tuple[Path, Path]:
+    pmsms_dir = root / "pmsms_mc.mmappet"
+
+    mz = np.array([100.5, 200.25, 300.125,
+                   150.5, 250.25, 350.125, 420.0], dtype=np.float32)
+    intensity = np.array([100, 200, 300, 400, 500, 600, 700], dtype=np.uint32)
+    frags_df = pd.DataFrame({"mz": mz, "intensity": intensity})
+    with mmappet.DatasetWriter(pmsms_dir, overwrite_dir=True) as w:
+        w.append_df(frags_df)
+
+    idx_df = pd.DataFrame({
+        "ms1idx": np.array([0, 1], dtype=np.int64),
+        "idx":    np.array([0, 3], dtype=np.int64),
+        "size":   np.array([3, 4], dtype=np.int64),
+    })
+    with mmappet.DatasetWriter(pmsms_dir / "dataindex.mmappet", overwrite_dir=True) as w:
+        w.append_df(idx_df)
+
+    precursors = pd.DataFrame({
+        "fragment_spectrum_start": np.array([0, 3],           dtype=np.int64),
+        "fragment_event_cnt":      np.array([3, 4],           dtype=np.int64),
+        "charges":                 np.array([12, 234],        dtype=np.int64),
+        "frame":                   np.array([10, 20],         dtype=np.int32),
+        "scan":                    np.array([1, 2],           dtype=np.int32),
+        "tof":                     np.array([100, 200],       dtype=np.int32),
+        "inv_ion_mobility":        np.array([0.9, 1.0],       dtype=np.float64),
+        "intensity":               np.array([5000, 6000],     dtype=np.int64),
+        "mz":                      np.array([500.123, 600.456], dtype=np.float64),
+        "rt":                      np.array([10.5, 20.5],     dtype=np.float64),
+    })
+    prec_path = pmsms_dir / "filtered_precursors_with_nontrivial_ms2.parquet"
+    precursors.to_parquet(prec_path)
+    return pmsms_dir, prec_path
+
+
+def run_multicharge_test(tmp: Path) -> None:
+    pmsms_dir, prec_path = create_test_pmsms_multicharge(tmp)
+
+    print("=== run_multicharge_test: precursors ===")
+    print(pd.read_parquet(prec_path).to_string())
+    print("=== run_multicharge_test: pmsms_mc.mmappet ===")
+    print_pmsms(pmsms_dir)
+
+    config_path = tmp / "config_mc.toml"
+    config_path.write_text(CONFIG_TOML)
+    out_mgf = tmp / "out_mc.mgf"
+
+    msms2mgf_multicharge(
+        pmsms_path=pmsms_dir,
+        precursor_clusters_path=prec_path,
+        config_path=config_path,
+        out_mgf_path=out_mgf,
+    )
+
+    print("=== run_multicharge_test: out_mc.mgf ===")
+    print(out_mgf.read_text())
+
+    spectra = parse_mgf(out_mgf)
+
+    # 5 total: 2 from precursor 0 + 3 from precursor 1
+    assert len(spectra) == 5, f"Expected 5 spectra, got {len(spectra)}"
+
+    # Precursor 0 → spectra[0] (charge 1) and spectra[1] (charge 2): same 3 peaks
+    for i in (0, 1):
+        assert len(spectra[i]["peaks"]) == 3
+        assert spectra[i]["peaks"][0] == (100.5, 100)
+        assert spectra[i]["peaks"][2] == (300.125, 300)
+
+    h0 = {l.split("=")[0]: l for l in spectra[0]["header"]}
+    h1 = {l.split("=")[0]: l for l in spectra[1]["header"]}
+    assert h0["CHARGE"] == "CHARGE=1+", h0["CHARGE"]
+    assert h1["CHARGE"] == "CHARGE=2+", h1["CHARGE"]
+    # same PEPMASS for both
+    assert h0["PEPMASS"] == h1["PEPMASS"] == "PEPMASS=500.123"
+
+    # Precursor 1 → spectra[2..4] (charges 2,3,4): same 4 peaks
+    for i in (2, 3, 4):
+        assert len(spectra[i]["peaks"]) == 4
+        assert spectra[i]["peaks"][0] == (150.5, 400)
+        assert spectra[i]["peaks"][3] == (420.0, 700)
+
+    charges_1 = [
+        {l.split("=")[0]: l for l in spectra[i]["header"]}["CHARGE"]
+        for i in (2, 3, 4)
+    ]
+    assert charges_1 == ["CHARGE=2+", "CHARGE=3+", "CHARGE=4+"], charges_1
+
+
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmp:
         run_test(Path(tmp))
+        run_multicharge_test(Path(tmp))
     print("OK")
