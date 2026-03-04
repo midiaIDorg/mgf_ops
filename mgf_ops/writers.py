@@ -82,7 +82,7 @@ def write_spectra(
     return good
 
 
-if __name__ == "__main__":
+if False:
     pd.set_option("display.max_columns", None)
     pd.set_option("display.max_rows", 5)
     pmsms_path = "temp/F9477/optimal_short4_new/pmsms.mmappet"
