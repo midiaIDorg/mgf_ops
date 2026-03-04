@@ -39,7 +39,8 @@ def parse_inputs_for_msms2mgf(
 ):
     res = DotDict()
     with open(config, "rb") as f:
-        config = DotDict.Recursive(tomllib.load(f)["msms2mgf"])
+        config = tomllib.load(f)
+        config = DotDict.Recursive(config.get("msms2mgf", config))
     pseudomsms = open_pmsms(msms_folder)
 
     return DotDict(

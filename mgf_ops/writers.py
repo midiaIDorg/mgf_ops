@@ -78,10 +78,35 @@ def write_spectra(
     return good
 
 
+import mmappet
+import tomllib
+
+if __name__ == "__main__":
+    pd.set_option("display.max_columns", None)
+    pd.set_option("display.max_rows", 5)
+
+    pmsms_path = "temp/F9477/optimal_short4_new/pmsms.mmappet"
+    precursor_clusters_path = (
+        "temp/F9477/optimal_short4_new/long_charges_precursor_clusters.parquet"
+    )
+    config_path = "configs/mgf/default.toml"
+    out_mgf_path = "temp/F9477/optimal_short4_new/mgf.mgf"
+
+    pmsms_path = Path(pmsms_path)
+    pseudomsms = DotDict.Recursive(
+        dict(
+            fragments=mmappet.open_dataset_dct(pmsms_path),
+            idx=mmappet.open_dataset_dct(pmsms_path / "dataindex.mmappet"),
+            precursors=pd.read_parquet(precursor_clusters_path),
+        )
+    )
+
+
 def msms2mgf(
-    mgf_path: Path,
-    pseudomsms: DotDict,
-    config: DotDict,
+    pmsms_path: Path,
+    precursor_clusters_path: Path,
+    config_path: DotDict,
+    out_mgf_path: Path,
     threads_cnt: int = numba.get_num_threads(),
     verbose: bool = False,
 ) -> None:
@@ -133,7 +158,7 @@ def msms2mgf(
     )
 
     mgf = np.memmap(
-        mgf_path,
+        out_mgf_path,
         mode="w+",
         shape=total_byte_cnt,
         dtype=np.uint8,
