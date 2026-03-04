@@ -49,7 +49,8 @@ Required precursor columns: `fragment_spectrum_start` (int), `fragment_event_cnt
 |---|---|
 | `readers.py` | `open_pmsms()`, `parse_inputs_for_msms2mgf()` |
 | `indexing.py` | Core hashing/indexing: `get_mz_indexes()`, `get_intensity_indexes()`, `count_ascii_per_fragment_pair()`, `fill_mgf()`, `index_precursors()`, `get_index()` |
-| `writers.py` | `msms2mgf()` orchestrator + `write_spectra()` Numba kernel (**WIP — see below**) |
+| `writers.py` | `msms2mgf()`, `msms2mgf_multicharge()`, `expand_precursors_by_charges()`, `write_spectra()` Numba kernel (legacy) |
+| `charges.py` | Numba helpers for charge encoding/decoding: `encode_charges_bool()`, `digits_base10()`, `explode_charge_codes()` |
 | `math.py` | Numba utilities: `count_floats()`, `minmax()`, `len_of_integer_part()` |
 | `stats.py` | `count_per_batch()`, `divide_indices()` — parallel histogram counting |
 | `sortops.py` | Sorting helpers |
@@ -66,19 +67,13 @@ Declared in `pyproject.toml [project.scripts]`:
 
 | Command | File | Status |
 |---|---|---|
-| `msms2mgf` | `mgf_ops.cli.msms:msms2mgf_cli` | **File missing** (`cli/msms.py` does not exist) |
+| `msms_one_charge` | `mgf_ops.writers:msms_one_charge_cli` | Working — single `charge` column per precursor |
+| `msms_multiple_charge` | `mgf_ops.writers:msms_multiple_charge_cli` | Working — `charges` int column, one entry per encoded digit |
 | `write_mgf` | `mgf_ops.cli.write:write_mgf` | **Broken** — uses commented-out `GroupedIndex`/`read_df` imports |
 | `split_mgf` | `mgf_ops.cli.split:split_mgf` | Working — splits MGF into ≤ N GiB chunks |
 | `change_mgf_headers` | `mgf_ops.cli.change:change_mgf_headers` | Working — rewrites TITLE lines via regex→format; outputs to STDOUT |
 | `cut_and_index_precursors` | `mgf_ops.cli.cut_and_index_precursors:main` | Working |
 | `postprocess_pmsms` | `mgf_ops.cli.postprocess_pmsms:main` | Working |
-
-### Known WIP: `msms2mgf()` in `writers.py`
-
-The function body references bare names `pseudomsms` and `config` that are only defined
-in the `if __name__ == "__main__"` block above the function definition. The function
-signature (`pmsms_path`, `precursor_clusters_path`, `config_path`, `out_mgf_path`, …)
-does not match its body. Both the function and `cli/msms.py` need to be written/fixed.
 
 ---
 
@@ -163,6 +158,24 @@ dicts loaded from TOML or `mmappet.open_dataset_dct()`.
 - Inline tests (`test_get_mz_indexes`, `test_get_intensity_indexes`,
   `test_len_of_integer_part`) live in `indexing.py` and `math.py` — runnable with
   `python -m pytest` or directly.
+- End-to-end test: `tests/test_msms2mgf.py` — run with `../../venvs/common/bin/python tests/test_msms2mgf.py`.
+  Contains `run_test()` (single-charge) and `run_multicharge_test()` (multi-charge via `charges` column).
 - `boundscheck=True` on Numba functions is intentional for development correctness;
   remove for production builds if performance matters.
 - `__dev/` contains exploratory scripts and is not part of the installed package.
+
+---
+
+## Multi-charge support (`charges` column)
+
+When precursors have a `charges` column instead of `charge`, one integer encodes multiple
+possible charges as its decimal digits (e.g. `1246` → charges 1, 2, 4, 6).
+
+**Expand-then-reuse** pattern: `expand_precursors_by_charges()` in `writers.py` calls
+`explode_charge_codes()` (Numba, `charges.py`) to decode each digit and duplicate the
+precursor row. The expanded DataFrame has a `charge` column and the same
+`fragment_spectrum_start`/`fragment_event_cnt` values, so the downstream pipeline writes
+identical fragment peaks for each charge automatically.
+
+Use `msms2mgf_multicharge()` instead of `msms2mgf()` when the precursor table has a
+`charges` column. CLI entry point: `msms_multiple_charge`.

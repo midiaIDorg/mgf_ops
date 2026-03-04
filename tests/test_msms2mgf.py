@@ -12,7 +12,7 @@ import pandas as pd
 import mmappet
 from pathlib import Path
 
-from mgf_ops.writers import msms2mgf, msms2mgf_multicharge
+from mgf_ops.writers import msms2mgf
 
 
 def print_pmsms(pmsms_dir: Path) -> None:
@@ -232,11 +232,12 @@ def run_multicharge_test(tmp: Path) -> None:
     config_path.write_text(CONFIG_TOML)
     out_mgf = tmp / "out_mc.mgf"
 
-    msms2mgf_multicharge(
+    msms2mgf(
         pmsms_path=pmsms_dir,
         precursor_clusters_path=prec_path,
         config_path=config_path,
         out_mgf_path=out_mgf,
+        multicharge=True,
     )
 
     print("=== run_multicharge_test: out_mc.mgf ===")
