@@ -1,8 +1,12 @@
+import argparse
 import numba
 import numpy as np
+import os
 import pandas as pd
 
+import mmappet
 import numpy.typing as npt
+import tomllib
 
 from dictodot import DotDict
 from numba_progress import ProgressBar
@@ -78,28 +82,15 @@ def write_spectra(
     return good
 
 
-import mmappet
-import tomllib
-
 if __name__ == "__main__":
     pd.set_option("display.max_columns", None)
     pd.set_option("display.max_rows", 5)
-
     pmsms_path = "temp/F9477/optimal_short4_new/pmsms.mmappet"
     precursor_clusters_path = (
         "temp/F9477/optimal_short4_new/long_charges_precursor_clusters.parquet"
     )
     config_path = "configs/mgf/default.toml"
-    out_mgf_path = "temp/F9477/optimal_short4_new/mgf.mgf"
-
-    pmsms_path = Path(pmsms_path)
-    pseudomsms = DotDict.Recursive(
-        dict(
-            fragments=mmappet.open_dataset_dct(pmsms_path),
-            idx=mmappet.open_dataset_dct(pmsms_path / "dataindex.mmappet"),
-            precursors=pd.read_parquet(precursor_clusters_path),
-        )
-    )
+    out_mgf_path = "/tmp/mgf.mgf"
 
 
 def msms2mgf(
@@ -110,9 +101,18 @@ def msms2mgf(
     threads_cnt: int = numba.get_num_threads(),
     verbose: bool = False,
 ) -> None:
-    if verbose:
-        print("Using the following MGF config:")
-        pprint(config)
+    with open(config_path, "rb") as f:
+        config = tomllib.load(f)
+        config = DotDict.Recursive(config.get("msms2mgf", config))
+
+    pmsms_path = Path(pmsms_path)
+    pseudomsms = DotDict.Recursive(
+        dict(
+            fragments=mmappet.open_dataset_dct(pmsms_path),
+            idx=mmappet.open_dataset_dct(pmsms_path / "dataindex.mmappet"),
+            precursors=pd.read_parquet(precursor_clusters_path),
+        )
+    )
 
     pseudomsms.precursors = pseudomsms.precursors.query("fragment_event_cnt > 0").copy()
     print(f"Working with {len(pseudomsms.precursors):_} precursor peaks.")
@@ -195,3 +195,41 @@ def msms2mgf(
 
     if verbose:
         print("Dumped mgf.")
+
+
+def cli():
+    parser = argparse.ArgumentParser(description="Turn pmsms into mgf.")
+
+    parser.add_argument(
+        "pmsms_path",
+        type=Path,
+        help="Path to pmsms folder.",
+    )
+    parser.add_argument(
+        "precursor_clusters_path",
+        type=Path,
+        help="Path to used precursors.",
+    )
+    parser.add_argument(
+        "config_path",
+        type=Path,
+        help="Path mgf maker config.",
+    )
+    parser.add_argument(
+        "out_mgf_path",
+        type=Path,
+        help="Path where to save the mgf..",
+    )
+    parser.add_argument(
+        "--threads_cnt",
+        type=int,
+        default=os.cpu_count(),
+        help="Path where to save the mgf..",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Be more verbose.",
+    )
+    args = parser.parse_args()
+    msms2mgf(**args.__dict__)
