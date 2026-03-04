@@ -86,9 +86,7 @@ if __name__ == "__main__":
     pd.set_option("display.max_columns", None)
     pd.set_option("display.max_rows", 5)
     pmsms_path = "temp/F9477/optimal_short4_new/pmsms.mmappet"
-    precursor_clusters_path = (
-        "temp/F9477/optimal_short4_new/long_charges_precursor_clusters.parquet"
-    )
+    precursor_clusters_path = "temp/F9477/optimal_short4_new/filtered_precursor_clusters_with_nontrivial_ms2.parquet"
     config_path = "configs/mgf/default.toml"
     out_mgf_path = "/tmp/mgf.mgf"
 
