@@ -33,7 +33,8 @@ dev = [
 write_mgf = "mgf_ops.cli.write:write_mgf"
 split_mgf = "mgf_ops.cli.split:split_mgf"
 change_mgf_headers = "mgf_ops.cli.change:change_mgf_headers"
-msms2mgf = "mgf_ops.writers:cli"
+msms2mgf = "mgf_ops.writers:msms_one_charge_cli"
+msms2mgf_multicharge = "mgf_ops.writers:msms_multiple_charge_cli"
 postprocess_pmsms = "mgf_ops.cli.postprocess_pmsms:main"
 cut_and_index_precursors = "mgf_ops.cli.cut_and_index_precursors:main"
 

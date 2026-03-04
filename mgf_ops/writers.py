@@ -233,7 +233,9 @@ def msms2mgf_multicharge(
 
     pseudomsms.precursors = pseudomsms.precursors.query("fragment_event_cnt > 0").copy()
     pseudomsms.precursors = expand_precursors_by_charges(pseudomsms.precursors)
-    print(f"Working with {len(pseudomsms.precursors):_} precursor peaks (after charge expansion).")
+    print(
+        f"Working with {len(pseudomsms.precursors):_} precursor peaks (after charge expansion)."
+    )
     print(f"Working with {len(pseudomsms.fragments.mz):_} fragment peaks.")
 
     MZ = get_mz_indexes(pseudomsms.fragments.mz, config.fragments.mz_digits)
@@ -348,5 +350,12 @@ def cli():
         action="store_true",
         help="Be more verbose.",
     )
-    args = parser.parse_args()
-    msms2mgf(**args.__dict__)
+    return parser.parse_args()
+
+
+def msms_one_charge_cli():
+    msms2mgf(**cli().__dict__)
+
+
+def msms_multiple_charge_cli():
+    msms2mgf_multicharge(**cli().__dict__)
