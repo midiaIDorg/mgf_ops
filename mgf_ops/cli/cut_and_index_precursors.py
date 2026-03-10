@@ -33,7 +33,7 @@ def cut_precursors_and_add_indices(
     final_precursors["fragment_event_cnt"] = idx["size"].to_numpy()
     final_precursors["fragment_spectrum_start"] = idx["idx"].to_numpy()
     assert np.all(np.diff(final_precursors.fragment_spectrum_start) > 0)
-    final_precursors.to_parquet(output_precursors_path)
+    final_precursors.to_parquet(output_precursors_path, index=False)
     print("Filtered Precursors with Nontrivial MS2 Spectra:")
     print(final_precursors)
 
