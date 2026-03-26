@@ -35,8 +35,10 @@ CONFIG_TOML = textwrap.dedent("""\
     )
     SELECT
         printf(
-            'BEGIN IONS\\nTITLE="idx=%d frame=%d scan=%d tof=%d iim=%.4f I=%d"\\nPEPMASS=%.3f\\nRTINSECONDS=%.3f\\nCHARGE=%d+\\n',
+            'BEGIN IONS\\nTITLE="idx=%d precursor_idx=%d charge=%d frame=%d scan=%d tof=%d iim=%.4f I=%d"\\nPEPMASS=%.3f\\nRTINSECONDS=%.3f\\nCHARGE=%d+\\n',
             original_idx,
+            precursor_idx,
+            charge,
             frame,
             scan,
             tof,
@@ -89,6 +91,7 @@ def create_test_pmsms(root: Path) -> tuple[Path, Path]:
     precursors = pd.DataFrame({
         "fragment_spectrum_start": np.array([0, 3, 6],          dtype=np.int64),
         "fragment_event_cnt":      np.array([3, 3, 4],          dtype=np.int64),
+        "precursor_idx":           np.array([10, 20, 30],        dtype=np.int64),
         "frame":                   np.array([10, 20, 30],        dtype=np.int32),
         "scan":                    np.array([1,  2,  3],         dtype=np.int32),
         "tof":                     np.array([100, 200, 300],     dtype=np.int32),
@@ -174,11 +177,13 @@ def run_test(tmp: Path) -> None:
     assert header_lines["CHARGE"] == "CHARGE=2+", f"CHARGE mismatch: {header_lines['CHARGE']}"
 
     title_line = next((l for l in spectra[0]["header"] if l.startswith("TITLE")), None)
-    assert title_line is not None, "TITLE missing from spectrum 0 header"
-    assert "idx=1" in title_line,    f"TITLE missing idx=1: {title_line}"
-    assert "frame=10" in title_line, f"TITLE missing frame=10: {title_line}"
-    assert "scan=1" in title_line,   f"TITLE missing scan=1: {title_line}"
-    assert "tof=100" in title_line,  f"TITLE missing tof=100: {title_line}"
+    assert title_line is not None,          "TITLE missing from spectrum 0 header"
+    assert "idx=1" in title_line,           f"TITLE missing idx=1: {title_line}"
+    assert "precursor_idx=10" in title_line, f"TITLE missing precursor_idx=10: {title_line}"
+    assert "charge=2" in title_line,        f"TITLE missing charge=2: {title_line}"
+    assert "frame=10" in title_line,        f"TITLE missing frame=10: {title_line}"
+    assert "scan=1" in title_line,          f"TITLE missing scan=1: {title_line}"
+    assert "tof=100" in title_line,         f"TITLE missing tof=100: {title_line}"
 
     # charge for spectrum 1 should be 3+
     header_lines_1 = {line.split("=")[0]: line for line in spectra[1]["header"]}
@@ -206,6 +211,7 @@ def create_test_pmsms_multicharge(root: Path) -> tuple[Path, Path]:
     precursors = pd.DataFrame({
         "fragment_spectrum_start": np.array([0, 3],           dtype=np.int64),
         "fragment_event_cnt":      np.array([3, 4],           dtype=np.int64),
+        "precursor_idx":           np.array([100, 200],       dtype=np.int64),
         "charges":                 np.array([12, 234],        dtype=np.int64),
         "frame":                   np.array([10, 20],         dtype=np.int32),
         "scan":                    np.array([1, 2],           dtype=np.int32),
