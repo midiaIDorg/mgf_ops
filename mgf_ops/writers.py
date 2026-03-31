@@ -20,9 +20,53 @@ from mgf_ops.indexing import get_intensity_indexes
 from mgf_ops.indexing import get_mz_indexes
 from mgf_ops.indexing import index_precursors
 
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from mgf_ops.charges import explode_charge_codes
 from mgf_ops.str_ops import ascii2str
 from mgf_ops.str_ops import str2ascii
+
+
+# ---------------------------------------------------------------------------
+# Configuration models
+# ---------------------------------------------------------------------------
+
+
+class FragmentsFormatConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mz_digits: int = Field(gt=0)
+    mz_intensity_separator: str
+    after_intensity: str
+    end_ions: str
+
+
+class Msms2MgfConfig(BaseModel):
+    """Top-level config for msms2mgf().
+
+    Parsed from the ``[msms2mgf]`` TOML section.
+    Unknown top-level keys are silently ignored.
+
+    >>> Msms2MgfConfig(
+    ...     fragments={"mz_digits": 3, "mz_intensity_separator": " ",
+    ...                "after_intensity": "\\n", "end_ions": "END IONS\\n\\n"},
+    ...     ms1_header_sql="SELECT title FROM precursors",
+    ... ).fragments.mz_digits
+    3
+
+    >>> Msms2MgfConfig(
+    ...     ms1_header_sql="SELECT title FROM precursors",
+    ... )  # doctest: +ELLIPSIS
+    Traceback (most recent call last):
+        ...
+    pydantic_core._pydantic_core.ValidationError: 1 validation error for Msms2MgfConfig
+    fragments
+      Field required [type=missing, ...]
+        For further information visit ...
+    """
+
+    model_config = ConfigDict(extra="ignore")
+    fragments: FragmentsFormatConfig
+    ms1_header_sql: str
 
 
 @numba.njit(boundscheck=True, parallel=True)
@@ -102,8 +146,16 @@ def msms2mgf(
     multicharge: bool = False,
 ) -> None:
     with open(config_path, "rb") as f:
-        config = tomllib.load(f)
-        config = DotDict.Recursive(config.get("msms2mgf", config))
+        raw = tomllib.load(f)
+    raw = raw.get("msms2mgf", raw)
+    try:
+        config = Msms2MgfConfig(**raw)
+    except ValidationError as exc:
+        lines = [f"Config error in {config_path} [msms2mgf]:"]
+        for err in exc.errors():
+            loc = " → ".join(str(p) for p in err["loc"]) if err["loc"] else "(top level)"
+            lines.append(f"  {loc}: {err['msg']}")
+        raise ValueError("\n".join(lines)) from exc
 
     pmsms_path = Path(pmsms_path)
     pseudomsms = DotDict.Recursive(
