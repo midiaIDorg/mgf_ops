@@ -136,6 +136,22 @@ if False:
     out_mgf_path = "/tmp/mgf.mgf"
 
 
+def validate_config(config_path):
+    with open(config_path, "rb") as f:
+        raw = tomllib.load(f)
+    raw = raw.get("msms2mgf", raw)
+    try:
+        return Msms2MgfConfig(**raw)
+    except ValidationError as exc:
+        lines = [f"Config error in {config_path} [msms2mgf]:"]
+        for err in exc.errors():
+            loc = (
+                " → ".join(str(p) for p in err["loc"]) if err["loc"] else "(top level)"
+            )
+            lines.append(f"  {loc}: {err['msg']}")
+        raise ValueError("\n".join(lines)) from exc
+
+
 def msms2mgf(
     pmsms_path: Path,
     precursor_clusters_path: Path,
@@ -145,18 +161,7 @@ def msms2mgf(
     verbose: bool = False,
     multicharge: bool = False,
 ) -> None:
-    with open(config_path, "rb") as f:
-        raw = tomllib.load(f)
-    raw = raw.get("msms2mgf", raw)
-    try:
-        config = Msms2MgfConfig(**raw)
-    except ValidationError as exc:
-        lines = [f"Config error in {config_path} [msms2mgf]:"]
-        for err in exc.errors():
-            loc = " → ".join(str(p) for p in err["loc"]) if err["loc"] else "(top level)"
-            lines.append(f"  {loc}: {err['msg']}")
-        raise ValueError("\n".join(lines)) from exc
-
+    config = validate_config(config_path)
     pmsms_path = Path(pmsms_path)
     pseudomsms = DotDict.Recursive(
         dict(
