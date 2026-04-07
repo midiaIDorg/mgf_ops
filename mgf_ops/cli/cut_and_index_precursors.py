@@ -27,6 +27,7 @@ def cut_precursors_and_add_indices(
         .sort_values("idx")
     )
 
+    precursors = precursors.sort_values("transmitted_idx").reset_index(drop=True)
     final_precursors = precursors.iloc[
         idx.ms1idx
     ].copy()  # sorts precursors by reported spectra
