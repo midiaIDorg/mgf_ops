@@ -172,9 +172,12 @@ def msms2mgf(
     )
 
     pseudomsms.precursors = pseudomsms.precursors.query("fragment_event_cnt > 0").copy()
+    n_precursors = len(pseudomsms.precursors)
     if multicharge:
         pseudomsms.precursors = expand_precursors_by_charges(pseudomsms.precursors)
-    print(f"Working with {len(pseudomsms.precursors):_} precursor peaks.")
+        print(f"Working with {n_precursors:_} precursors ({len(pseudomsms.precursors):_} after charge expansion).")
+    else:
+        print(f"Working with {n_precursors:_} precursors.")
     print(f"Working with {len(pseudomsms.fragments.mz):_} fragment peaks.")
 
     MZ = get_mz_indexes(pseudomsms.fragments.mz, config.fragments.mz_digits)

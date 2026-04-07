@@ -1,3 +1,5 @@
+# %load_ext autoreload
+# %autoreload 2
 import argparse
 import mmappet
 import numpy as np
@@ -9,9 +11,18 @@ pd.set_option("display.max_columns", None)
 pd.set_option("display.max_rows", 5)
 
 
-# precursors_path = "temp/F9477/correlation/transmitted_precursors.transprec/filtered_precursors.parquet"
-# index_path = "temp/F9477/correlation/pmsms.mmappet/dataindex.mmappet"
-# output_precursors_path = "temp/F9477/correlation/pmsms.mmappet/precursors.parquet"
+if __name__ == "__main__":
+    dataset_name = "F9468"
+    dataset_name = "G20513"
+    cfg = "optimal2tier4"
+    cfg = "optimal2tier"
+    precursors_path = Path(
+        f"temp/{dataset_name}/{cfg}/filtered_transmitted_precursor_clusters.parquet"
+    )
+    index_path = Path(f"temp/{dataset_name}/{cfg}/pmsms.mmappet/dataindex.mmappet")
+    output_precursors_path = (
+        "/home/matteo/tmp/{dataset_name}/{cfg}/pmsms.mmappet/precursors.parquet"
+    )
 
 
 def cut_precursors_and_add_indices(
