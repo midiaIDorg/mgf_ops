@@ -31,12 +31,16 @@ def cut_precursors_and_add_indices(
     output_precursors_path,
 ) -> None:
     precursors = pd.read_parquet(precursors_path)
+    idx_all = pd.DataFrame(mmappet.open_dataset_dct(index_path), copy=False)
     idx = (
-        pd.DataFrame(mmappet.open_dataset_dct(index_path), copy=False)
+        idx_all
         .sort_values("ms1idx")
         .query("size > 0")
         .sort_values("idx")
     )
+    n_empty = (idx_all["size"] == 0).sum()
+    if n_empty:
+        print(f"Dropped {n_empty:_} / {len(idx_all):_} precursors with no fragment events (size == 0 in mkpmsms output).")
 
     precursors = precursors.sort_values("transmitted_idx").reset_index(drop=True)
     final_precursors = precursors.iloc[
