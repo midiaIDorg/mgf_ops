@@ -1,3 +1,5 @@
+# %load_ext autoreload
+# %autoreload 2
 import argparse
 import mmappet
 import numba
@@ -14,14 +16,20 @@ def tof2mz(tofs, tof2mz, mzs):
         mzs[i] = tof2mz[tofs[i]]
 
 
-# pmsms_path = Path("/home/matteo/Projects/timstofu/ionmaiden_pipeline/git/ionmaidenmetal/test_results/B6699_correlations.mmappet")
-# tof2mz_path = Path("/home/matteo/Projects/timstofu/ionmaiden_pipeline/temp/B6699/fragments.ms2/tof2mz.mmappet")
-# pmsms_path = Path(
-#     "/home/matteo/Projects/timstofu/ionmaiden_pipeline/git/ionmaidenmetal/test_results/F9477_correlations.mmappet"
-# )
-# tof2mz_path = Path(
-#     "/home/matteo/Projects/timstofu/ionmaiden_pipeline/temp/F9477/fragments.ms2/tof2mz.mmappet"
-# )
+if __name__ == "__main__":
+    dataset_name = "F9468"
+    cfg = "optimal2tier4"
+    pmsms_path = Path(f"temp/{dataset_name}/{cfg}/pmsms.mmappet")
+    tof2mz_path = Path(f"temp/{dataset_name}/events.ms2/tof2mz.mmappet")
+
+
+@numba.njit
+def count_above(xx, thr):
+    cnt = 0
+    for x in xx:
+        if x >= thr:
+            cnt += 1
+    return cnt
 
 
 def postprocessing_pmsms(pmsms_path, tof2mz_path):
@@ -48,7 +56,3 @@ def main():
     args = parser.parse_args()
 
     postprocessing_pmsms(args.pmsms_path, args.tof2mz_path)
-
-
-if __name__ == "__main__":
-    main()
