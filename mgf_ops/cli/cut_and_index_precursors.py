@@ -32,23 +32,21 @@ def cut_precursors_and_add_indices(
 ) -> None:
     precursors = pd.read_parquet(precursors_path)
     idx_all = pd.DataFrame(mmappet.open_dataset_dct(index_path), copy=False)
-    idx = (
-        idx_all
-        .sort_values("ms1idx")
-        .query("size > 0")
-        .sort_values("idx")
-    )
     n_empty = (idx_all["size"] == 0).sum()
     if n_empty:
         print(f"Dropped {n_empty:_} / {len(idx_all):_} precursors with no fragment events (size == 0 in mkpmsms output).")
 
-    precursors = precursors.sort_values("transmitted_idx").reset_index(drop=True)
-    final_precursors = precursors.iloc[
-        idx.ms1idx
-    ].copy()  # sorts precursors by reported spectra
-    final_precursors["fragment_event_cnt"] = idx["size"].to_numpy()
-    final_precursors["fragment_spectrum_start"] = idx["idx"].to_numpy()
-    assert np.all(np.diff(final_precursors.fragment_spectrum_start) > 0)
+    idx = (
+        idx_all
+        .query("size > 0")
+        .rename(columns={"size": "fragment_event_cnt", "idx": "fragment_spectrum_start"})
+    )
+    final_precursors = (
+        idx.merge(precursors, on="precursor_idx")
+        .sort_values("fragment_spectrum_start")
+        .reset_index(drop=True)
+    )
+    assert np.all(np.diff(final_precursors.fragment_spectrum_start.to_numpy()) > 0)
     final_precursors.to_parquet(output_precursors_path, index=False)
     print("Filtered Precursors with Nontrivial MS2 Spectra:")
     print(final_precursors)
