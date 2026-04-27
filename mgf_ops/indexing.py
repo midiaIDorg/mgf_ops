@@ -163,7 +163,9 @@ def count_ascii_per_fragment_pair(
     intensities: NDArray,
     intensity_to_hash: NDArray,
     intensity_lens: NDArray,
-    additional_bytes_per_pair: int = 2,  # " " and "\n"
+    additional_bytes_per_pair: int,
+    fragment_keep: NDArray,
+    use_filter: numba.boolean,
     progress: ProgressBar | None = None,
 ) -> NDArray:
     precursors_cnt = len(precursor_to_frag_cnt)
@@ -175,6 +177,8 @@ def count_ascii_per_fragment_pair(
         s = precursor_to_frag_idx[i]
         cnt = precursor_to_frag_cnt[i]
         for frag_idx in range(s, s + cnt):
+            if use_filter and not fragment_keep[frag_idx]:
+                continue
             mz = mzs[frag_idx]
             intensity = intensities[frag_idx]
             int_mz = int(mz * mz_mult)
@@ -232,6 +236,8 @@ def fill_mgf(
     separator: NDArray,
     newline: NDArray,
     end_ions: NDArray,
+    fragment_keep: NDArray,
+    use_filter: numba.boolean,
     progress: ProgressBar | None = None,
 ) -> NDArray:
     precursors_cnt = len(precursor_to_frag_cnt)
@@ -253,6 +259,8 @@ def fill_mgf(
         s_frags = precursor_to_frag_idx[prec_idx]
         e_frags = s_frags + precursor_to_frag_cnt[prec_idx]
         for frag_idx in range(s_frags, e_frags):
+            if use_filter and not fragment_keep[frag_idx]:
+                continue
             # f"{mz}{separator}{intensity}{newline}"
             mz_hash = int_mz_to_hash[int(mzs[frag_idx] * mz_mult)]
             s_mz = mz_hash_to_ascii[mz_hash]
