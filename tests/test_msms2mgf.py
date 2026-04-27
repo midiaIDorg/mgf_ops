@@ -190,6 +190,90 @@ def run_test(tmp: Path) -> None:
     assert header_lines_1["CHARGE"] == "CHARGE=3+", f"CHARGE mismatch spectrum 1: {header_lines_1['CHARGE']}"
 
 
+def write_tof_filter(
+    root: Path,
+    precursor_keep: list[bool],
+    fragment_keep: list[bool],
+) -> Path:
+    filter_dir = root / "tof_filter"
+    filter_dir.mkdir()
+    (filter_dir / "metadata.txt").write_text(
+        f"n_precursors={len(precursor_keep)}\n"
+        f"n_fragments={len(fragment_keep)}\n"
+    )
+    np.packbits(np.asarray(precursor_keep, dtype=np.bool_), bitorder="little").tofile(
+        filter_dir / "precursor_keep.bin"
+    )
+    np.packbits(np.asarray(fragment_keep, dtype=np.bool_), bitorder="little").tofile(
+        filter_dir / "fragment_keep.bin"
+    )
+    return filter_dir
+
+
+def test_msms2mgf_tof_filter_keeps_expected_precursors_and_fragments(tmp_path: Path) -> None:
+    pmsms_dir, prec_path = create_test_pmsms(tmp_path)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(CONFIG_TOML)
+
+    out_unfiltered = tmp_path / "unfiltered.mgf"
+    out_no_filter_files = tmp_path / "no_filter_files.mgf"
+    out_filtered = tmp_path / "filtered.mgf"
+
+    msms2mgf(
+        pmsms_path=pmsms_dir,
+        precursor_clusters_path=prec_path,
+        config_path=config_path,
+        out_mgf_path=out_unfiltered,
+    )
+
+    no_filter_files_dir = tmp_path / "no_filter_files"
+    no_filter_files_dir.mkdir()
+    msms2mgf(
+        pmsms_path=pmsms_dir,
+        precursor_clusters_path=prec_path,
+        config_path=config_path,
+        out_mgf_path=out_no_filter_files,
+        tof_filter_path=no_filter_files_dir,
+    )
+
+    assert out_no_filter_files.read_text() == out_unfiltered.read_text()
+
+    filter_dir = write_tof_filter(
+        tmp_path,
+        precursor_keep=[True, False, True],
+        fragment_keep=[
+            True,
+            False,
+            True,
+            True,
+            True,
+            True,
+            False,
+            True,
+            False,
+            True,
+        ],
+    )
+    msms2mgf(
+        pmsms_path=pmsms_dir,
+        precursor_clusters_path=prec_path,
+        config_path=config_path,
+        out_mgf_path=out_filtered,
+        tof_filter_path=filter_dir,
+    )
+
+    spectra = parse_mgf(out_filtered)
+
+    assert len(spectra) == 2
+    assert spectra[0]["peaks"] == [(100.125, 100), (300.5, 300)]
+    assert spectra[1]["peaks"] == [(220.25, 800), (420.0, 1000)]
+
+    title_0 = next(line for line in spectra[0]["header"] if line.startswith("TITLE"))
+    title_1 = next(line for line in spectra[1]["header"] if line.startswith("TITLE"))
+    assert "precursor_idx=10" in title_0
+    assert "precursor_idx=30" in title_1
+
+
 def create_test_pmsms_multicharge(root: Path) -> tuple[Path, Path]:
     pmsms_dir = root / "pmsms_mc.mmappet"
 
