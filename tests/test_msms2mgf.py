@@ -60,7 +60,8 @@ CONFIG_TOML = textwrap.dedent("""\
 """)
 
 
-def create_test_pmsms(root: Path) -> tuple[Path, Path]:
+def create_test_pmsms(root: Path, include_mz: bool = True) -> tuple[Path, Path, Path]:
+    root.mkdir(parents=True, exist_ok=True)
     pmsms_dir = root / "pmsms.mmappet"
 
     # Use m/z values whose fractional parts are exact binary fractions (halves /
@@ -75,10 +76,20 @@ def create_test_pmsms(root: Path) -> tuple[Path, Path]:
         [100, 200, 300, 400, 500, 600, 700, 800, 900, 1000],
         dtype=np.uint32,
     )
+    tof2mz = np.unique(np.sort(mz))
+    tof = np.searchsorted(tof2mz, mz).astype(np.uint32)
+    score = np.full(len(mz), 0.5, dtype=np.float32)
 
-    frags_df = pd.DataFrame({"mz": mz, "intensity": intensity})
+    frags = {"tof": tof, "intensity": intensity, "score": score}
+    if include_mz:
+        frags["mz"] = mz
+    frags_df = pd.DataFrame(frags)
     with mmappet.DatasetWriter(pmsms_dir, overwrite_dir=True) as w:
         w.append_df(frags_df)
+
+    tof2mz_path = root / "tof2mz.mmappet"
+    with mmappet.DatasetWriter(tof2mz_path, overwrite_dir=True) as w:
+        w.append_df(pd.DataFrame({"x": tof2mz}))
 
     idx_df = pd.DataFrame({
         "ms1idx": np.array([0, 1, 2], dtype=np.int64),
@@ -104,7 +115,7 @@ def create_test_pmsms(root: Path) -> tuple[Path, Path]:
     prec_path = pmsms_dir / "filtered_precursors_with_nontrivial_ms2.parquet"
     precursors.to_parquet(prec_path)
 
-    return pmsms_dir, prec_path
+    return pmsms_dir, prec_path, tof2mz_path
 
 
 def parse_mgf(path: Path) -> list[dict]:
@@ -128,7 +139,7 @@ def parse_mgf(path: Path) -> list[dict]:
 
 
 def run_test(tmp: Path) -> None:
-    pmsms_dir, prec_path = create_test_pmsms(tmp)
+    pmsms_dir, prec_path, _ = create_test_pmsms(tmp)
 
     print("=== run_test: precursors ===")
     print(pd.read_parquet(prec_path).to_string())
@@ -211,7 +222,7 @@ def write_tof_filter(
 
 
 def test_msms2mgf_tof_filter_keeps_expected_precursors_and_fragments(tmp_path: Path) -> None:
-    pmsms_dir, prec_path = create_test_pmsms(tmp_path)
+    pmsms_dir, prec_path, _ = create_test_pmsms(tmp_path)
     config_path = tmp_path / "config.toml"
     config_path.write_text(CONFIG_TOML)
 
@@ -272,6 +283,32 @@ def test_msms2mgf_tof_filter_keeps_expected_precursors_and_fragments(tmp_path: P
     title_1 = next(line for line in spectra[1]["header"] if line.startswith("TITLE"))
     assert "precursor_idx=10" in title_0
     assert "precursor_idx=30" in title_1
+
+
+def test_msms2mgf_tof2mz_matches_stored_mz_output(tmp_path: Path) -> None:
+    legacy_dir, legacy_prec, _ = create_test_pmsms(tmp_path / "legacy", include_mz=True)
+    tof_dir, tof_prec, tof2mz_path = create_test_pmsms(tmp_path / "tof", include_mz=False)
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(CONFIG_TOML)
+
+    legacy_mgf = tmp_path / "legacy.mgf"
+    tof_mgf = tmp_path / "tof.mgf"
+
+    msms2mgf(
+        pmsms_path=legacy_dir,
+        precursor_clusters_path=legacy_prec,
+        config_path=config_path,
+        out_mgf_path=legacy_mgf,
+    )
+    msms2mgf(
+        pmsms_path=tof_dir,
+        precursor_clusters_path=tof_prec,
+        config_path=config_path,
+        out_mgf_path=tof_mgf,
+        tof2mz_path=tof2mz_path,
+    )
+
+    assert tof_mgf.read_text() == legacy_mgf.read_text()
 
 
 def create_test_pmsms_multicharge(root: Path) -> tuple[Path, Path]:

@@ -20,7 +20,7 @@ if __name__ == "__main__":
     dataset_name = "F9468"
     cfg = "optimal2tier4"
     pmsms_path = Path(f"temp/{dataset_name}/{cfg}/pmsms.mmappet")
-    tof2mz_path = Path(f"temp/{dataset_name}/events.ms2/tof2mz.mmappet")
+    tof2mz_path = Path(f"temp/{dataset_name}/tof2mz.ms2.mmappet")
 
 
 @numba.njit

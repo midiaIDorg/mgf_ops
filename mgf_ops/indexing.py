@@ -102,6 +102,39 @@ def get_mz_indexes(
     return R
 
 
+def get_tof_mz_ascii_tables(
+    tof2mz: NDArray[float],
+    mz_digits: int = 3,
+    duck_con: duckdb.DuckDBPyConnection | None = None,
+) -> DotDict[str, Any]:
+    assert isinstance(mz_digits, int)
+    assert mz_digits > 0
+    mult = 10.0**mz_digits
+
+    mz_bins = (tof2mz * mult).astype(np.int64)
+    unique_bins, inverse = np.unique(mz_bins, return_inverse=True)
+
+    if duck_con is None:
+        duck_con = duckdb.connect()
+
+    duck_con.register("X", pd.DataFrame(dict(int_mz=unique_bins), copy=False))
+    sql = f"""
+    SELECT
+    printf('%.{mz_digits}f', int_mz / {mult}) AS str,
+    CAST(length(str) AS uinteger) AS str_len
+    FROM 'X'
+    """
+    R = DotDict()
+    for c, v in duck_con.query(sql).df().items():
+        R[c] = v.to_numpy()
+
+    unique_ascii_idx = get_index(R.str_len)
+    R.ascii = strSeries2ascii(R.str)
+    R.tof_to_mz_size = R.str_len[inverse]
+    R.tof_to_mz_ascii_idx = unique_ascii_idx[inverse]
+    return R
+
+
 def test_get_mz_indexes():
     mzs = np.array(
         [100.01, 100.02, 100.003, 100.002, 101.122, 1020.2132, 0.0, 0.121, 10.12]
@@ -184,6 +217,42 @@ def count_ascii_per_fragment_pair(
             int_mz = int(mz * mz_mult)
             counts[i] += (
                 mz_lens[int_mz_to_hash[int_mz]]
+                + intensity_lens[intensity_to_hash[intensity]]
+                + additional_bytes_per_pair
+            )
+        if progress is not None:
+            progress.update(1)
+    return counts
+
+
+@numba.njit(parallel=True, boundscheck=True)
+def count_ascii_per_fragment_pair_from_tof(
+    precursor_to_frag_idx: NDArray,
+    precursor_to_frag_cnt: NDArray,
+    tofs: NDArray,
+    tof_to_mz_size: NDArray,
+    intensities: NDArray,
+    intensity_to_hash: NDArray,
+    intensity_lens: NDArray,
+    additional_bytes_per_pair: int,
+    fragment_keep: NDArray,
+    use_filter: numba.boolean,
+    progress: ProgressBar | None = None,
+) -> NDArray:
+    precursors_cnt = len(precursor_to_frag_cnt)
+    assert precursors_cnt == len(precursor_to_frag_idx)
+
+    counts = np.zeros(precursors_cnt, np.uintp)
+    for i in numba.prange(precursors_cnt):
+        s = precursor_to_frag_idx[i]
+        cnt = precursor_to_frag_cnt[i]
+        for frag_idx in range(s, s + cnt):
+            if use_filter and not fragment_keep[frag_idx]:
+                continue
+            tof = tofs[frag_idx]
+            intensity = intensities[frag_idx]
+            counts[i] += (
+                tof_to_mz_size[tof]
                 + intensity_lens[intensity_to_hash[intensity]]
                 + additional_bytes_per_pair
             )
@@ -285,6 +354,82 @@ def fill_mgf(
                 mgf_idx += 1
 
         # footer
+        for e in end_ions:
+            mgf[mgf_idx] = e
+            mgf_idx += 1
+
+        assertions[prec_idx] = mgf_idx == e_mgf
+
+        if progress is not None:
+            progress.update(1)
+
+    return assertions
+
+
+@numba.njit(parallel=True)
+def fill_mgf_from_tof(
+    mgf: NDArray,
+    spectrum_idx: NDArray,
+    precursor_to_frag_idx: NDArray,
+    precursor_to_frag_cnt: NDArray,
+    headers_idx: NDArray,
+    headers_ascii: NDArray,
+    tofs: NDArray,
+    tof_to_mz_size: NDArray,
+    tof_to_mz_ascii_idx: NDArray,
+    mz_ascii: NDArray,
+    intensities: NDArray,
+    intensity_to_hash: NDArray,
+    intensity_hash_to_ascii: NDArray,
+    intensity_ascii: NDArray,
+    separator: NDArray,
+    newline: NDArray,
+    end_ions: NDArray,
+    fragment_keep: NDArray,
+    use_filter: numba.boolean,
+    progress: ProgressBar | None = None,
+) -> NDArray:
+    precursors_cnt = len(precursor_to_frag_cnt)
+    assert precursors_cnt == len(precursor_to_frag_idx)
+
+    assertions = np.empty(precursors_cnt, np.bool_)
+    for prec_idx in numba.prange(precursors_cnt):
+        mgf_idx = int(spectrum_idx[prec_idx])
+        e_mgf = spectrum_idx[prec_idx + 1]
+
+        s_header = headers_idx[prec_idx]
+        e_header = headers_idx[prec_idx + 1]
+        for header_idx in range(s_header, e_header):
+            mgf[mgf_idx] = headers_ascii[header_idx]
+            mgf_idx += 1
+
+        s_frags = precursor_to_frag_idx[prec_idx]
+        e_frags = s_frags + precursor_to_frag_cnt[prec_idx]
+        for frag_idx in range(s_frags, e_frags):
+            if use_filter and not fragment_keep[frag_idx]:
+                continue
+            tof = tofs[frag_idx]
+            s_mz = tof_to_mz_ascii_idx[tof]
+            e_mz = s_mz + tof_to_mz_size[tof]
+            for mz_idx in range(s_mz, e_mz):
+                mgf[mgf_idx] = mz_ascii[mz_idx]
+                mgf_idx += 1
+
+            for s in separator:
+                mgf[mgf_idx] = s
+                mgf_idx += 1
+
+            intensity_hash = intensity_to_hash[intensities[frag_idx]]
+            s_inten = intensity_hash_to_ascii[intensity_hash]
+            e_inten = intensity_hash_to_ascii[intensity_hash + 1]
+            for inten_idx in range(s_inten, e_inten):
+                mgf[mgf_idx] = intensity_ascii[inten_idx]
+                mgf_idx += 1
+
+            for n in newline:
+                mgf[mgf_idx] = n
+                mgf_idx += 1
+
         for e in end_ions:
             mgf[mgf_idx] = e
             mgf_idx += 1
