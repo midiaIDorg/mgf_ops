@@ -201,76 +201,41 @@ def run_test(tmp: Path) -> None:
     assert header_lines_1["CHARGE"] == "CHARGE=3+", f"CHARGE mismatch spectrum 1: {header_lines_1['CHARGE']}"
 
 
-def write_tof_filter(
-    root: Path,
-    precursor_keep: list[bool],
-    fragment_keep: list[bool],
-) -> Path:
-    filter_dir = root / "tof_filter"
-    filter_dir.mkdir()
-    (filter_dir / "metadata.txt").write_text(
-        f"n_precursors={len(precursor_keep)}\n"
-        f"n_fragments={len(fragment_keep)}\n"
-    )
-    np.packbits(np.asarray(precursor_keep, dtype=np.bool_), bitorder="little").tofile(
-        filter_dir / "precursor_keep.bin"
-    )
-    np.packbits(np.asarray(fragment_keep, dtype=np.bool_), bitorder="little").tofile(
-        filter_dir / "fragment_keep.bin"
-    )
-    return filter_dir
+def create_physically_filtered_pmsms(root: Path) -> tuple[Path, Path]:
+    pmsms_dir, prec_path, _ = create_test_pmsms(root / "source")
+    filtered_dir = root / "filtered_pmsms.mmappet"
+    keep_fragments = np.array([0, 2, 7, 9], dtype=np.int64)
+    source = mmappet.open_dataset_dct(pmsms_dir)
+    with mmappet.DatasetWriter(filtered_dir, overwrite_dir=True) as w:
+        w.append_df(pd.DataFrame({col: values[keep_fragments] for col, values in source.items()}))
+
+    idx_df = pd.DataFrame({
+        "ms1idx": np.array([0, 2], dtype=np.int64),
+        "idx":    np.array([0, 2], dtype=np.int64),
+        "size":   np.array([2, 2], dtype=np.int64),
+    })
+    with mmappet.DatasetWriter(filtered_dir / "dataindex.mmappet", overwrite_dir=True) as w:
+        w.append_df(idx_df)
+
+    precursors = pd.read_parquet(prec_path).iloc[[0, 2]].copy()
+    precursors["fragment_spectrum_start"] = np.array([0, 2], dtype=np.int64)
+    precursors["fragment_event_cnt"] = np.array([2, 2], dtype=np.int64)
+    filtered_prec_path = filtered_dir / "filtered_precursors.parquet"
+    precursors.to_parquet(filtered_prec_path)
+    return filtered_dir, filtered_prec_path
 
 
-def test_msms2mgf_tof_filter_keeps_expected_precursors_and_fragments(tmp_path: Path) -> None:
-    pmsms_dir, prec_path, _ = create_test_pmsms(tmp_path)
+def test_msms2mgf_uses_physically_filtered_pmsms(tmp_path: Path) -> None:
+    filtered_pmsms_dir, filtered_prec_path = create_physically_filtered_pmsms(tmp_path)
     config_path = tmp_path / "config.toml"
     config_path.write_text(CONFIG_TOML)
-
-    out_unfiltered = tmp_path / "unfiltered.mgf"
-    out_no_filter_files = tmp_path / "no_filter_files.mgf"
     out_filtered = tmp_path / "filtered.mgf"
 
     msms2mgf(
-        pmsms_path=pmsms_dir,
-        precursor_clusters_path=prec_path,
-        config_path=config_path,
-        out_mgf_path=out_unfiltered,
-    )
-
-    no_filter_files_dir = tmp_path / "no_filter_files"
-    no_filter_files_dir.mkdir()
-    msms2mgf(
-        pmsms_path=pmsms_dir,
-        precursor_clusters_path=prec_path,
-        config_path=config_path,
-        out_mgf_path=out_no_filter_files,
-        tof_filter_path=no_filter_files_dir,
-    )
-
-    assert out_no_filter_files.read_text() == out_unfiltered.read_text()
-
-    filter_dir = write_tof_filter(
-        tmp_path,
-        precursor_keep=[True, False, True],
-        fragment_keep=[
-            True,
-            False,
-            True,
-            True,
-            True,
-            True,
-            False,
-            True,
-            False,
-            True,
-        ],
-    )
-    msms2mgf(
-        pmsms_path=pmsms_dir,
-        precursor_clusters_path=prec_path,
+        pmsms_path=filtered_pmsms_dir,
+        precursor_clusters_path=filtered_prec_path,
         config_path=config_path,
         out_mgf_path=out_filtered,
-        tof_filter_path=filter_dir,
     )
 
     spectra = parse_mgf(out_filtered)

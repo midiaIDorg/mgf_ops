@@ -139,21 +139,6 @@ if False:
     out_mgf_path = "/tmp/mgf.mgf"
 
 
-def _unpack_bits(path: Path, n: int) -> np.ndarray:
-    raw = np.fromfile(path, dtype=np.uint8)
-    return np.unpackbits(raw, bitorder="little")[:n].astype(np.bool_)
-
-
-def _parse_filter_metadata(metadata_path: Path) -> dict:
-    result = {}
-    for line in Path(metadata_path).read_text().splitlines():
-        if "=" in line:
-            k, v = line.split("=", 1)
-            result[k.strip()] = v.strip()
-    return result
-
-
-
 def validate_config(config_path):
     with open(config_path, "rb") as f:
         raw = tomllib.load(f)
@@ -178,7 +163,6 @@ def msms2mgf(
     threads_cnt: int = numba.get_num_threads(),
     verbose: bool = False,
     multicharge: bool = False,
-    tof_filter_path: Path | None = None,
     tof2mz_path: Path | None = None,
 ) -> None:
     config = validate_config(config_path)
@@ -192,24 +176,6 @@ def msms2mgf(
     )
 
     pseudomsms.precursors = pseudomsms.precursors.query("fragment_event_cnt > 0").copy()
-
-    frag_keep = np.empty(0, np.bool_)
-    use_filter = False
-    if tof_filter_path is not None and (Path(tof_filter_path) / "fragment_keep.bin").exists():
-        meta = _parse_filter_metadata(Path(tof_filter_path) / "metadata.txt")
-        n_filter_frags = int(meta["n_fragments"])
-        n_filter_prec  = int(meta["n_precursors"])
-
-        prec_keep = _unpack_bits(Path(tof_filter_path) / "precursor_keep.bin", n_filter_prec)
-        idx_to_j  = {int(v): j for j, v in enumerate(pseudomsms.idx.idx)}
-        keep_mask = pseudomsms.precursors["fragment_spectrum_start"].map(
-            lambda s: prec_keep[idx_to_j[int(s)]] if int(s) in idx_to_j else False
-        )
-        pseudomsms.precursors = pseudomsms.precursors[keep_mask].copy()
-
-        frag_keep  = _unpack_bits(Path(tof_filter_path) / "fragment_keep.bin", n_filter_frags)
-        use_filter = True
-        print(f"After tof_score_filter: {len(pseudomsms.precursors):_} precursors retained.")
 
     use_tof2mz = tof2mz_path is not None
     if use_tof2mz:
@@ -261,8 +227,6 @@ def msms2mgf(
                 intensity_to_hash=INTENSITY.intensity_to_hash,
                 intensity_lens=INTENSITY.str_len,
                 additional_bytes_per_pair=len(separator) + len(newline),
-                fragment_keep=frag_keep,
-                use_filter=use_filter,
                 progress=progress,
             )
         else:
@@ -277,8 +241,6 @@ def msms2mgf(
                 intensity_to_hash=INTENSITY.intensity_to_hash,
                 intensity_lens=INTENSITY.str_len,
                 additional_bytes_per_pair=len(separator) + len(newline),
-                fragment_keep=frag_keep,
-                use_filter=use_filter,
                 progress=progress,
             )
 
@@ -325,8 +287,6 @@ def msms2mgf(
                 separator=separator,
                 newline=newline,
                 end_ions=end_ions,
-                fragment_keep=frag_keep,
-                use_filter=use_filter,
                 progress=progress,
             )
         else:
@@ -349,8 +309,6 @@ def msms2mgf(
                 separator=separator,
                 newline=newline,
                 end_ions=end_ions,
-                fragment_keep=frag_keep,
-                use_filter=use_filter,
                 progress=progress,
             )
 
@@ -408,12 +366,6 @@ def cli():
         "--verbose",
         action="store_true",
         help="Be more verbose.",
-    )
-    parser.add_argument(
-        "--tof_filter_path",
-        type=Path,
-        default=None,
-        help="Path to tof_filtered_pmsms dir (precursor_keep.bin + fragment_keep.bin).",
     )
     parser.add_argument(
         "--tof2mz_path",
