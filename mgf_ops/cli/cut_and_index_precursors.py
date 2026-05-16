@@ -17,11 +17,11 @@ if __name__ == "__main__":
     cfg = "optimal2tier4"
     cfg = "optimal2tier"
     precursors_path = Path(
-        f"temp/{dataset_name}/{cfg}/filtered_transmitted_precursor_clusters.parquet"
+        f"temp/{dataset_name}/{cfg}/filtered_transmitted_precursor_clusters.mmappet"
     )
     index_path = Path(f"temp/{dataset_name}/{cfg}/pmsms.mmappet/dataindex.mmappet")
-    output_precursors_path = (
-        "/home/matteo/tmp/{dataset_name}/{cfg}/pmsms.mmappet/precursors.parquet"
+    output_precursors_path = Path(
+        f"/home/matteo/tmp/{dataset_name}/{cfg}/pmsms.mmappet/precursors.mmappet"
     )
 
 
@@ -30,7 +30,7 @@ def cut_precursors_and_add_indices(
     index_path,
     output_precursors_path,
 ) -> None:
-    precursors = pd.read_parquet(precursors_path)
+    precursors = mmappet.open_dataset(precursors_path)
     idx_all = pd.DataFrame(mmappet.open_dataset_dct(index_path), copy=False)
     n_empty = (idx_all["size"] == 0).sum()
     if n_empty:
@@ -47,7 +47,8 @@ def cut_precursors_and_add_indices(
         .reset_index(drop=True)
     )
     assert np.all(np.diff(final_precursors.fragment_spectrum_start.to_numpy()) > 0)
-    final_precursors.to_parquet(output_precursors_path, index=False)
+    with mmappet.DatasetWriter(output_precursors_path, overwrite_dir=True) as writer:
+        writer.append_df(final_precursors)
     print("Filtered Precursors with Nontrivial MS2 Spectra:")
     print(final_precursors)
 
