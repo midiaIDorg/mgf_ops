@@ -22,6 +22,7 @@ from mgf_ops.indexing import get_intensity_indexes
 from mgf_ops.indexing import get_mz_indexes
 from mgf_ops.indexing import get_tof_mz_ascii_tables
 from mgf_ops.indexing import index_precursors
+from pandas_ops.io import read_df
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -134,7 +135,7 @@ if False:
     pd.set_option("display.max_columns", None)
     pd.set_option("display.max_rows", 5)
     pmsms_path = "temp/F9477/optimal_short4_new/pmsms.mmappet"
-    precursor_clusters_path = "temp/F9477/optimal_short4_new/filtered_precursor_clusters_with_nontrivial_ms2.parquet"
+    precursor_clusters_path = "temp/F9477/optimal_short4_new/filtered_precursor_clusters_with_nontrivial_ms2.mmappet"
     config_path = "configs/mgf/default.toml"
     out_mgf_path = "/tmp/mgf.mgf"
 
@@ -171,7 +172,7 @@ def msms2mgf(
         dict(
             fragments=mmappet.open_dataset_dct(pmsms_path),
             idx=mmappet.open_dataset_dct(pmsms_path / "dataindex.mmappet"),
-            precursors=pd.read_parquet(precursor_clusters_path),
+            precursors=read_df(precursor_clusters_path),
         )
     )
 

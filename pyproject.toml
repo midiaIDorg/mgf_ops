@@ -23,6 +23,7 @@ dependencies = [
     "tqdm",
     "fastparquet",
     "pydantic>=2",
+    "pandas_ops",
 ]
 [project.optional-dependencies]
 dev = [
