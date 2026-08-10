@@ -14,13 +14,10 @@ from pathlib import Path
 from pprint import pprint
 
 from mgf_ops.indexing import count_ascii_per_fragment_pair
-from mgf_ops.indexing import count_ascii_per_fragment_pair_from_tof
-from mgf_ops.indexing import fill_mgf_from_tof
 from mgf_ops.indexing import fill_mgf
 from mgf_ops.indexing import get_index
 from mgf_ops.indexing import get_intensity_indexes
 from mgf_ops.indexing import get_mz_indexes
-from mgf_ops.indexing import get_tof_mz_ascii_tables
 from mgf_ops.indexing import index_precursors
 from pandas_ops.io import read_df
 
@@ -164,7 +161,6 @@ def msms2mgf(
     threads_cnt: int = numba.get_num_threads(),
     verbose: bool = False,
     multicharge: bool = False,
-    tof2mz_path: Path | None = None,
 ) -> None:
     config = validate_config(config_path)
     pmsms_path = Path(pmsms_path)
@@ -178,22 +174,8 @@ def msms2mgf(
 
     pseudomsms.precursors = pseudomsms.precursors.query("fragment_event_cnt > 0").copy()
 
-    use_tof2mz = tof2mz_path is not None
-    if use_tof2mz:
-        tof2mz = mmappet.open_dataset_dct(tof2mz_path)["x"]
-        if len(tof2mz) == 0:
-            raise ValueError(f"tof2mz table is empty: {tof2mz_path}")
-        if np.any(np.diff(tof2mz) < 0):
-            raise ValueError(f"tof2mz table must be non-decreasing: {tof2mz_path}")
-        if "tof" not in pseudomsms.fragments:
-            raise ValueError("pmsms fragments need a 'tof' column when tof2mz_path is provided")
-        max_tof = int(pseudomsms.fragments.tof.max()) if len(pseudomsms.fragments.tof) else -1
-        if max_tof >= len(tof2mz):
-            raise ValueError(
-                f"fragment tof {max_tof} is out of bounds for tof2mz length {len(tof2mz)}"
-            )
-    elif "mz" not in pseudomsms.fragments:
-        raise ValueError("pmsms fragments need 'mz' unless tof2mz_path is provided")
+    if "mz" not in pseudomsms.fragments:
+        raise ValueError("pmsms fragments need an 'mz' column")
 
     n_precursors = len(pseudomsms.precursors)
     if multicharge:
@@ -203,10 +185,7 @@ def msms2mgf(
         print(f"Working with {n_precursors:_} precursors.")
     print(f"Working with {len(pseudomsms.fragments.intensity):_} fragment peaks.")
 
-    if use_tof2mz:
-        MZ = get_tof_mz_ascii_tables(tof2mz, config.fragments.mz_digits)
-    else:
-        MZ = get_mz_indexes(pseudomsms.fragments.mz, config.fragments.mz_digits)
+    MZ = get_mz_indexes(pseudomsms.fragments.mz, config.fragments.mz_digits)
     INTENSITY = get_intensity_indexes(pseudomsms.fragments.intensity)
 
     # to config
@@ -218,32 +197,19 @@ def msms2mgf(
         total=len(pseudomsms.precursors),
         desc="Counting ASCI lens per precursor.",
     ) as progress:
-        if use_tof2mz:
-            fragments_ascii_cnts = count_ascii_per_fragment_pair_from_tof(
-                precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
-                precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
-                tofs=pseudomsms.fragments.tof,
-                tof_to_mz_size=MZ.tof_to_mz_size,
-                intensities=pseudomsms.fragments.intensity,
-                intensity_to_hash=INTENSITY.intensity_to_hash,
-                intensity_lens=INTENSITY.str_len,
-                additional_bytes_per_pair=len(separator) + len(newline),
-                progress=progress,
-            )
-        else:
-            fragments_ascii_cnts = count_ascii_per_fragment_pair(
-                precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
-                precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
-                fragment_mz_digits=config.fragments.mz_digits,
-                mzs=pseudomsms.fragments.mz,
-                int_mz_to_hash=MZ.int_mz_to_hash,
-                mz_lens=MZ.str_len,
-                intensities=pseudomsms.fragments.intensity,
-                intensity_to_hash=INTENSITY.intensity_to_hash,
-                intensity_lens=INTENSITY.str_len,
-                additional_bytes_per_pair=len(separator) + len(newline),
-                progress=progress,
-            )
+        fragments_ascii_cnts = count_ascii_per_fragment_pair(
+            precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
+            precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
+            fragment_mz_digits=config.fragments.mz_digits,
+            mzs=pseudomsms.fragments.mz,
+            int_mz_to_hash=MZ.int_mz_to_hash,
+            mz_lens=MZ.str_len,
+            intensities=pseudomsms.fragments.intensity,
+            intensity_to_hash=INTENSITY.intensity_to_hash,
+            intensity_lens=INTENSITY.str_len,
+            additional_bytes_per_pair=len(separator) + len(newline),
+            progress=progress,
+        )
 
     if verbose:
         print("Used header:")
@@ -269,49 +235,27 @@ def msms2mgf(
         total=len(pseudomsms.precursors),
         desc="Filling MGF with ASCII",
     ) as progress:
-        if use_tof2mz:
-            assertions = fill_mgf_from_tof(
-                mgf=mgf,
-                spectrum_idx=spectrum_idx,
-                precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
-                precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
-                headers_idx=headers.idx,
-                headers_ascii=headers.ascii,
-                tofs=pseudomsms.fragments.tof,
-                tof_to_mz_size=MZ.tof_to_mz_size,
-                tof_to_mz_ascii_idx=MZ.tof_to_mz_ascii_idx,
-                mz_ascii=MZ.ascii,
-                intensities=pseudomsms.fragments.intensity,
-                intensity_to_hash=INTENSITY.intensity_to_hash,
-                intensity_hash_to_ascii=INTENSITY.hash_to_ascii_idx,
-                intensity_ascii=INTENSITY.ascii,
-                separator=separator,
-                newline=newline,
-                end_ions=end_ions,
-                progress=progress,
-            )
-        else:
-            assertions = fill_mgf(
-                mgf=mgf,
-                spectrum_idx=spectrum_idx,
-                precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
-                precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
-                headers_idx=headers.idx,
-                headers_ascii=headers.ascii,
-                fragment_mz_digits=config.fragments.mz_digits,
-                mzs=pseudomsms.fragments.mz,
-                int_mz_to_hash=MZ.int_mz_to_hash,
-                mz_hash_to_ascii=MZ.hash_to_ascii_idx,
-                mz_ascii=MZ.ascii,
-                intensities=pseudomsms.fragments.intensity,
-                intensity_to_hash=INTENSITY.intensity_to_hash,
-                intensity_hash_to_ascii=INTENSITY.hash_to_ascii_idx,
-                intensity_ascii=INTENSITY.ascii,
-                separator=separator,
-                newline=newline,
-                end_ions=end_ions,
-                progress=progress,
-            )
+        assertions = fill_mgf(
+            mgf=mgf,
+            spectrum_idx=spectrum_idx,
+            precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
+            precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
+            headers_idx=headers.idx,
+            headers_ascii=headers.ascii,
+            fragment_mz_digits=config.fragments.mz_digits,
+            mzs=pseudomsms.fragments.mz,
+            int_mz_to_hash=MZ.int_mz_to_hash,
+            mz_hash_to_ascii=MZ.hash_to_ascii_idx,
+            mz_ascii=MZ.ascii,
+            intensities=pseudomsms.fragments.intensity,
+            intensity_to_hash=INTENSITY.intensity_to_hash,
+            intensity_hash_to_ascii=INTENSITY.hash_to_ascii_idx,
+            intensity_ascii=INTENSITY.ascii,
+            separator=separator,
+            newline=newline,
+            end_ions=end_ions,
+            progress=progress,
+        )
 
     assert assertions.all()
     mgf.flush()
@@ -367,12 +311,6 @@ def cli():
         "--verbose",
         action="store_true",
         help="Be more verbose.",
-    )
-    parser.add_argument(
-        "--tof2mz_path",
-        type=Path,
-        default=None,
-        help="Path to fragment tof2mz.mmappet. When provided, pmsms fragments need tof instead of mz.",
     )
     return parser.parse_args()
 

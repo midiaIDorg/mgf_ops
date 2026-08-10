@@ -13,8 +13,10 @@ to allocate an exact-size `np.memmap`, and all hot loops run under Numba with `p
 
 The typical data flow before `msms2mgf` runs:
 
-1. **`postprocess_pmsms`** — adds `mz` (float32) to a raw `.mmappet` dataset by
-   converting TOF indices via a lookup table (`tof2mz.mmappet`). Operates in-place.
+1. `mz` materialization happens upstream now, in `timstofu` (`materialize_pmsms_mz`/
+   `recalibrate_pmsms_mz`) — see necromerge2 `plans/mzs_instead_tofs.md`. The old
+   in-place, tof2mz-lookup-based `postprocess_pmsms` command is gone; `msms2mgf`
+   requires `mz` to already be present in the pmsms dataset it's given.
 
 2. **`cut_and_index_precursors`** — reads a precursors parquet and a
    `dataindex.mmappet`, filters to precursors with non-trivial MS2, and writes
@@ -73,7 +75,6 @@ Declared in `pyproject.toml [project.scripts]`:
 | `split_mgf` | `mgf_ops.cli.split:split_mgf` | Working — splits MGF into ≤ N GiB chunks |
 | `change_mgf_headers` | `mgf_ops.cli.change:change_mgf_headers` | Working — rewrites TITLE lines via regex→format; outputs to STDOUT |
 | `cut_and_index_precursors` | `mgf_ops.cli.cut_and_index_precursors:main` | Working |
-| `postprocess_pmsms` | `mgf_ops.cli.postprocess_pmsms:main` | Working |
 
 ---
 
