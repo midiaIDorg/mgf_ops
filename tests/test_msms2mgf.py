@@ -333,6 +333,79 @@ def run_multicharge_test(tmp: Path) -> None:
     assert charges_1 == ["CHARGE=2+", "CHARGE=3+", "CHARGE=4+"], charges_1
 
 
+def _tof_and_mz_variants(pmsms_dir: Path, prec_path: Path, root: Path, shift_ppm) -> dict:
+    """The fixture's fragments twice: as `tof` + a float64 tof2mz table + precursors
+    carrying `fragment_shift_ppm`, and as an `mz` column holding exactly the m/z the
+    table route computes, `float32(table[tof] / (1 + shift*1e-6))`."""
+    root.mkdir(parents=True, exist_ok=True)
+    frags = mmappet.open_dataset_dct(pmsms_dir)
+    precursors = pd.read_parquet(prec_path)
+    precursors["fragment_shift_ppm"] = np.asarray(shift_ppm, dtype=np.float64)
+    owner = np.repeat(np.arange(len(precursors)), precursors["fragment_event_cnt"].to_numpy())
+    divisor = 1.0 + precursors["fragment_shift_ppm"].to_numpy()[owner] * 1e-6
+    table = np.asarray(frags["mz"], dtype=np.float64) * divisor * (1.0 + 3.3e-7)
+    tof = np.arange(len(table), dtype=np.uint32)
+
+    out = {"table": root / "tof2mz.mmappet", "precursors": root / "precursors.parquet"}
+    with mmappet.DatasetWriter(out["table"], overwrite_dir=True) as w:
+        w.append_df(pd.DataFrame({"mz": table}))
+    precursors.to_parquet(out["precursors"])
+    for name, columns in {
+        "pmsms_tof": {"tof": tof, "intensity": frags["intensity"]},
+        "pmsms_mz": {"mz": (table / divisor).astype(np.float32), "intensity": frags["intensity"]},
+    }.items():
+        out[name] = root / f"{name}.mmappet"
+        with mmappet.DatasetWriter(out[name], overwrite_dir=True) as w:
+            w.append_df(pd.DataFrame(columns))
+        with mmappet.DatasetWriter(out[name] / "dataindex.mmappet", overwrite_dir=True) as w:
+            w.append_df(pd.DataFrame(mmappet.open_dataset_dct(pmsms_dir / "dataindex.mmappet")))
+    return out
+
+
+def _mgf_bytes(pmsms: Path, precursors: Path, config_path: Path, out: Path, **kwargs) -> bytes:
+    msms2mgf(pmsms_path=pmsms, precursor_clusters_path=precursors, config_path=config_path,
+             out_mgf_path=out, **kwargs)
+    return out.read_bytes()
+
+
+def test_tof2mz_table_with_fragment_shift_matches_the_mz_column(tmp_path: Path) -> None:
+    pmsms_dir, prec_path = create_test_pmsms(tmp_path / "fixture")
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(CONFIG_TOML)
+    v = _tof_and_mz_variants(pmsms_dir, prec_path, tmp_path / "variants", [1.5, -2.25, 0.0])
+
+    via_table = _mgf_bytes(v["pmsms_tof"], v["precursors"], config_path, tmp_path / "table.mgf", tof2mz=v["table"])
+    via_column = _mgf_bytes(v["pmsms_mz"], v["precursors"], config_path, tmp_path / "column.mgf")
+    assert via_table == via_column
+    assert len(parse_mgf(tmp_path / "table.mgf")) == 3
+
+
+def test_tof2mz_table_with_fragment_shift_matches_the_mz_column_multicharge(tmp_path: Path) -> None:
+    pmsms_dir, prec_path = create_test_pmsms_multicharge(tmp_path / "fixture")
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(CONFIG_TOML)
+    v = _tof_and_mz_variants(pmsms_dir, prec_path, tmp_path / "variants", [0.75, -3.5])
+
+    via_table = _mgf_bytes(v["pmsms_tof"], v["precursors"], config_path, tmp_path / "table.mgf",
+                           tof2mz=v["table"], multicharge=True)
+    via_column = _mgf_bytes(v["pmsms_mz"], v["precursors"], config_path, tmp_path / "column.mgf",
+                            multicharge=True)
+    assert via_table == via_column
+    assert len(parse_mgf(tmp_path / "table.mgf")) == 5  # charges 12 -> 2 spectra, 234 -> 3
+
+
+def test_tof2mz_needs_a_tof_column(tmp_path: Path) -> None:
+    pmsms_dir, prec_path = create_test_pmsms_multicharge(tmp_path / "fixture")  # mz only
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(CONFIG_TOML)
+    table = tmp_path / "tof2mz.mmappet"
+    with mmappet.DatasetWriter(table, overwrite_dir=True) as w:
+        w.append_df(pd.DataFrame({"mz": np.arange(5, dtype=np.float64)}))
+    import pytest
+    with pytest.raises(ValueError, match="'tof' column"):
+        _mgf_bytes(pmsms_dir, prec_path, config_path, tmp_path / "x.mgf", tof2mz=table, multicharge=True)
+
+
 if __name__ == "__main__":
     with tempfile.TemporaryDirectory() as tmp:
         run_test(Path(tmp))

@@ -167,6 +167,35 @@ dicts loaded from TOML or `mmappet.open_dataset_dct()`.
 
 ---
 
+## Fragment m/z through a tof2mz table: `--tof2mz` (2026-10)
+
+The pipeline's pmsms has no `mz` column (necromerge2
+`plans/exports_from_tof2mz_table.md`). `msms2mgf(..., tof2mz=path)` / CLI `--tof2mz`
+reads fragment m/z from the pmsms' `tof` column through the table's `mz` column
+(float32 raw or float64 recalibrated), divided per precursor row by
+`1 + fragment_shift_ppm*1e-6` when the precursors have that column:
+`float32(table[tof] / divisor)`, SAGE's arithmetic. Without `--tof2mz` the `mz`
+column is read as before (synthetic pmsms has no `tof`).
+
+`indexing.fragment_mz_source` builds the `(mz_column, tof, table, reads_table)` tuple
+and `indexing.fragment_mz` (inlined numba) returns one fragment's m/z from it;
+`count_ascii_per_fragment_pair` and `fill_mgf` take `divisors` + `source` instead of an
+`mzs` array. The m/z text table is built by `get_spectra_mz_indexes`, which counts
+rounded m/z over the precursors' fragment ranges only (the old `get_mz_indexes`
+counted the whole `mz` column; the printed bytes are the same). On F9477 the MGF is
+byte-identical to the one written from a materialized `mz` column.
+
+`fill_mgf` splits spectra across threads by bytes (`byte_balanced_chunks`, one
+contiguous range per `numba.get_num_threads()`), not by spectrum count. On F9477 that
+keeps ~10-11 of 16 cores busy to the end of the fill (the last fifth used to run on
+4-6) but does not shorten it: the fill is bound by pushing ~24 GiB through the page
+cache to disk. What did help is writing without btrfs compression (the pipeline's
+`convert_search_pmsms_to_mgf` runs `chattr +m` on its directory): 90.9 s -> 74.6 s.
+
+The inline tests `indexing.test_get_mz_indexes` (expects rounding where `count_floats`
+truncates) and `test_get_intensity_indexes` (missing `ascii2str` import) were already
+failing before this change.
+
 ## Multi-charge support (`charges` column)
 
 When precursors have a `charges` column instead of `charge`, one integer encodes multiple

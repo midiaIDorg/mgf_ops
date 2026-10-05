@@ -16,8 +16,9 @@ from pprint import pprint
 from mgf_ops.indexing import count_ascii_per_fragment_pair
 from mgf_ops.indexing import fill_mgf
 from mgf_ops.indexing import get_index
+from mgf_ops.indexing import fragment_mz_source
 from mgf_ops.indexing import get_intensity_indexes
-from mgf_ops.indexing import get_mz_indexes
+from mgf_ops.indexing import get_spectra_mz_indexes
 from mgf_ops.indexing import index_precursors
 from pandas_ops.io import read_df
 
@@ -161,7 +162,11 @@ def msms2mgf(
     threads_cnt: int = numba.get_num_threads(),
     verbose: bool = False,
     multicharge: bool = False,
+    tof2mz: Path | None = None,
 ) -> None:
+    """Write an MGF. Fragment m/z come from the pmsms' `mz` column or, with
+    `tof2mz`, as SAGE reads them: `tof2mz[tof] / (1 + fragment_shift_ppm*1e-6)`,
+    the shift taken from each precursor row when the precursors have it."""
     config = validate_config(config_path)
     pmsms_path = Path(pmsms_path)
     pseudomsms = DotDict.Recursive(
@@ -174,8 +179,7 @@ def msms2mgf(
 
     pseudomsms.precursors = pseudomsms.precursors.query("fragment_event_cnt > 0").copy()
 
-    if "mz" not in pseudomsms.fragments:
-        raise ValueError("pmsms fragments need an 'mz' column")
+    source = fragment_mz_source(pseudomsms.fragments, tof2mz)
 
     n_precursors = len(pseudomsms.precursors)
     if multicharge:
@@ -185,7 +189,14 @@ def msms2mgf(
         print(f"Working with {n_precursors:_} precursors.")
     print(f"Working with {len(pseudomsms.fragments.intensity):_} fragment peaks.")
 
-    MZ = get_mz_indexes(pseudomsms.fragments.mz, config.fragments.mz_digits)
+    precursor_to_frag_idx = pseudomsms.precursors.fragment_spectrum_start.to_numpy()
+    precursor_to_frag_cnt = pseudomsms.precursors.fragment_event_cnt.to_numpy()
+    divisors = np.ones(len(pseudomsms.precursors))
+    if "fragment_shift_ppm" in pseudomsms.precursors.columns:
+        divisors = 1.0 + pseudomsms.precursors.fragment_shift_ppm.to_numpy(dtype=np.float64) * 1e-6
+    MZ = get_spectra_mz_indexes(
+        precursor_to_frag_idx, precursor_to_frag_cnt, divisors, source, config.fragments.mz_digits
+    )
     INTENSITY = get_intensity_indexes(pseudomsms.fragments.intensity)
 
     # to config
@@ -198,10 +209,11 @@ def msms2mgf(
         desc="Counting ASCI lens per precursor.",
     ) as progress:
         fragments_ascii_cnts = count_ascii_per_fragment_pair(
-            precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
-            precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
+            precursor_to_frag_idx=precursor_to_frag_idx,
+            precursor_to_frag_cnt=precursor_to_frag_cnt,
             fragment_mz_digits=config.fragments.mz_digits,
-            mzs=pseudomsms.fragments.mz,
+            divisors=divisors,
+            source=source,
             int_mz_to_hash=MZ.int_mz_to_hash,
             mz_lens=MZ.str_len,
             intensities=pseudomsms.fragments.intensity,
@@ -238,12 +250,13 @@ def msms2mgf(
         assertions = fill_mgf(
             mgf=mgf,
             spectrum_idx=spectrum_idx,
-            precursor_to_frag_idx=pseudomsms.precursors.fragment_spectrum_start.to_numpy(),
-            precursor_to_frag_cnt=pseudomsms.precursors.fragment_event_cnt.to_numpy(),
+            precursor_to_frag_idx=precursor_to_frag_idx,
+            precursor_to_frag_cnt=precursor_to_frag_cnt,
             headers_idx=headers.idx,
             headers_ascii=headers.ascii,
             fragment_mz_digits=config.fragments.mz_digits,
-            mzs=pseudomsms.fragments.mz,
+            divisors=divisors,
+            source=source,
             int_mz_to_hash=MZ.int_mz_to_hash,
             mz_hash_to_ascii=MZ.hash_to_ascii_idx,
             mz_ascii=MZ.ascii,
@@ -311,6 +324,13 @@ def cli():
         "--verbose",
         action="store_true",
         help="Be more verbose.",
+    )
+    parser.add_argument(
+        "--tof2mz",
+        type=Path,
+        default=None,
+        help="tof -> m/z table (float32 or float64 column mz): read fragment m/z as "
+        "tof2mz[tof] / (1 + fragment_shift_ppm*1e-6), as SAGE does, instead of the pmsms' mz column.",
     )
     return parser.parse_args()
 

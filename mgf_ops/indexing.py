@@ -1,4 +1,5 @@
 import duckdb
+import mmappet
 import numba
 import numpy as np
 import pandas as pd
@@ -63,20 +64,102 @@ def index_precursors(
     )
 
 
+def fragment_mz_source(fragments: dict, tof2mz_path=None) -> tuple:
+    """`(mz_column, tof, tof2mz_table, reads_table)` for `fragment_mz`: the pmsms'
+    `tof` column with a (float32 raw or float64 recalibrated) tof2mz table when
+    `tof2mz_path` is given, else its `mz` column. Unused members are empty arrays."""
+    if tof2mz_path is None:
+        if "mz" not in fragments:
+            raise ValueError("pmsms fragments need an 'mz' column (or pass a tof2mz table)")
+        return fragments["mz"], np.empty(0, np.uint32), np.empty(0, np.float64), False
+    if "tof" not in fragments:
+        raise ValueError("pmsms fragments need a 'tof' column to read m/z through a tof2mz table")
+    table = np.asarray(mmappet.open_dataset_dct(tof2mz_path)["mz"], dtype=np.float64)
+    return np.empty(0, np.float32), fragments["tof"], table, True
+
+
+@numba.njit(inline="always")
+def fragment_mz(frag_idx, divisor, source):
+    """Fragment `frag_idx`'s m/z: the pmsms' `mz` column, or
+    `float32(tof2mz[tof[frag_idx]] / divisor)` -- SAGE's arithmetic, with `divisor`
+    the precursor's `1 + fragment_shift_ppm*1e-6` -- when `source` reads a table."""
+    mz_column, tof, tof2mz, reads_table = source
+    if reads_table:
+        return np.float32(tof2mz[tof[frag_idx]] / divisor)
+    return mz_column[frag_idx]
+
+
+@numba.njit(parallel=True)
+def count_spectra_mz(
+    precursor_to_frag_idx: NDArray,
+    precursor_to_frag_cnt: NDArray,
+    divisors: NDArray,
+    source: tuple,
+    counts: NDArray,
+    mult: float,
+) -> None:
+    """`count_floats` over the m/z the MGF will print: each precursor's fragments,
+    read through `fragment_mz`. One count array per thread, summed at the end."""
+    n_precursors = len(precursor_to_frag_idx)
+    n_chunks = numba.get_num_threads()
+    chunk_len = (n_precursors + n_chunks - 1) // n_chunks
+    local_counts = np.zeros((n_chunks, len(counts)), counts.dtype)
+    for c in numba.prange(n_chunks):
+        for i in range(c * chunk_len, min(n_precursors, (c + 1) * chunk_len)):
+            s = precursor_to_frag_idx[i]
+            for frag_idx in range(s, s + precursor_to_frag_cnt[i]):
+                local_counts[c, int(fragment_mz(frag_idx, divisors[i], source) * mult)] += 1
+    for c in range(n_chunks):
+        counts += local_counts[c]
+
+
+def get_spectra_mz_indexes(
+    precursor_to_frag_idx: NDArray,
+    precursor_to_frag_cnt: NDArray,
+    divisors: NDArray,
+    source: tuple,
+    mz_digits: int = 3,
+    duck_con: duckdb.DuckDBPyConnection | None = None,
+) -> DotDict[str, Any]:
+    """`get_mz_indexes` for the m/z each precursor's fragments are printed with
+    (see `fragment_mz`), counted over the precursors' fragment ranges only."""
+    mz_column, tof, tof2mz, reads_table = source
+    if reads_table:
+        # Upper bound: float32 rounding can push a value one step past it, hence +2.
+        max_mz = float(np.max(tof2mz) / np.min(divisors)) if len(divisors) else 0.0
+    else:
+        max_mz = float(minmax(mz_column)[1])
+    assert isinstance(mz_digits, int)
+    assert mz_digits > 0
+    mult = 10.0**mz_digits
+    int_mz_counts = np.zeros(int(max_mz * mult) + 2, np.uint32)
+    count_spectra_mz(precursor_to_frag_idx, precursor_to_frag_cnt, divisors, source, int_mz_counts, mult)
+    return _mz_indexes_from_counts(int_mz_counts, mz_digits, duck_con)
+
+
 def get_mz_indexes(
     mzs: NDArray[float],
     mz_digits: int = 3,
     duck_con: duckdb.DuckDBPyConnection | None = None,
 ) -> DotDict[str, Any]:
-    R = DotDict()
-    R.min_mz, R.max_mz = minmax(mzs)
     assert isinstance(mz_digits, int)
     assert mz_digits > 0
     mult = 10.0**mz_digits
-
-    int_mz_counts = np.zeros(int(R.max_mz * mult) + 1, np.uint32)
+    min_mz, max_mz = minmax(mzs)
+    int_mz_counts = np.zeros(int(max_mz * mult) + 1, np.uint32)
     count_floats(mzs, int_mz_counts, mult)
+    R = _mz_indexes_from_counts(int_mz_counts, mz_digits, duck_con)
+    R.min_mz, R.max_mz = min_mz, max_mz
+    return R
 
+
+def _mz_indexes_from_counts(
+    int_mz_counts: NDArray,
+    mz_digits: int,
+    duck_con: duckdb.DuckDBPyConnection | None = None,
+) -> DotDict[str, Any]:
+    R = DotDict()
+    mult = 10.0**mz_digits
     R.int_mz = int_mz_counts.nonzero()[0]
     R.count = int_mz_counts[R.int_mz]
 
@@ -157,7 +240,8 @@ def count_ascii_per_fragment_pair(
     precursor_to_frag_idx: NDArray,
     precursor_to_frag_cnt: NDArray,
     fragment_mz_digits: int,
-    mzs: NDArray,
+    divisors: NDArray,
+    source: tuple,
     int_mz_to_hash: NDArray,
     mz_lens: NDArray,
     intensities: NDArray,
@@ -175,7 +259,7 @@ def count_ascii_per_fragment_pair(
         s = precursor_to_frag_idx[i]
         cnt = precursor_to_frag_cnt[i]
         for frag_idx in range(s, s + cnt):
-            mz = mzs[frag_idx]
+            mz = fragment_mz(frag_idx, divisors[i], source)
             intensity = intensities[frag_idx]
             int_mz = int(mz * mz_mult)
             counts[i] += (
@@ -212,6 +296,21 @@ def get_direct_spectrum(
     return f"{header}{frag_tuples_repr}{end_ions}"
 
 
+@numba.njit
+def byte_balanced_chunks(byte_starts: NDArray, n_chunks: int) -> NDArray:
+    """Split spectra `0..n` (spectrum `i` spans bytes `byte_starts[i]:byte_starts[i+1]`)
+    into `n_chunks` contiguous ranges of about equal byte size, one per thread, so
+    threads finish together; returns the `n_chunks + 1` range boundaries."""
+    n_spectra = len(byte_starts) - 1
+    total = byte_starts[n_spectra]
+    bounds = np.empty(n_chunks + 1, np.int64)
+    for c in range(n_chunks + 1):
+        bounds[c] = np.searchsorted(byte_starts[:n_spectra], total * c // n_chunks)
+    bounds[0] = 0
+    bounds[n_chunks] = n_spectra
+    return bounds
+
+
 @numba.njit(parallel=True)
 def fill_mgf(
     mgf: NDArray,
@@ -221,7 +320,8 @@ def fill_mgf(
     headers_idx: NDArray,
     headers_ascii: NDArray,
     fragment_mz_digits: int,
-    mzs: NDArray,
+    divisors: NDArray,
+    source: tuple,
     int_mz_to_hash: NDArray,
     mz_hash_to_ascii: NDArray,
     mz_ascii: NDArray,
@@ -239,51 +339,53 @@ def fill_mgf(
 
     mz_mult = 10.0**fragment_mz_digits
     assertions = np.empty(precursors_cnt, np.bool_)
-    for prec_idx in numba.prange(precursors_cnt):
-        mgf_idx = int(spectrum_idx[prec_idx])
-        e_mgf = spectrum_idx[prec_idx + 1]
+    chunk_bounds = byte_balanced_chunks(spectrum_idx, numba.get_num_threads())
+    for chunk in numba.prange(len(chunk_bounds) - 1):
+        for prec_idx in range(chunk_bounds[chunk], chunk_bounds[chunk + 1]):
+            mgf_idx = int(spectrum_idx[prec_idx])
+            e_mgf = spectrum_idx[prec_idx + 1]
 
-        # header
-        s_header = headers_idx[prec_idx]
-        e_header = headers_idx[prec_idx + 1]
-        for header_idx in range(s_header, e_header):
-            mgf[mgf_idx] = headers_ascii[header_idx]
-            mgf_idx += 1
-
-        s_frags = precursor_to_frag_idx[prec_idx]
-        e_frags = s_frags + precursor_to_frag_cnt[prec_idx]
-        for frag_idx in range(s_frags, e_frags):
-            # f"{mz}{separator}{intensity}{newline}"
-            mz_hash = int_mz_to_hash[int(mzs[frag_idx] * mz_mult)]
-            s_mz = mz_hash_to_ascii[mz_hash]
-            e_mz = mz_hash_to_ascii[mz_hash + 1]
-            for mz_idx in range(s_mz, e_mz):
-                mgf[mgf_idx] = mz_ascii[mz_idx]
+            # header
+            s_header = headers_idx[prec_idx]
+            e_header = headers_idx[prec_idx + 1]
+            for header_idx in range(s_header, e_header):
+                mgf[mgf_idx] = headers_ascii[header_idx]
                 mgf_idx += 1
 
-            for s in separator:
-                mgf[mgf_idx] = s
+            s_frags = precursor_to_frag_idx[prec_idx]
+            e_frags = s_frags + precursor_to_frag_cnt[prec_idx]
+            for frag_idx in range(s_frags, e_frags):
+                # f"{mz}{separator}{intensity}{newline}"
+                mz_hash = int_mz_to_hash[int(fragment_mz(frag_idx, divisors[prec_idx], source) * mz_mult)]
+                s_mz = mz_hash_to_ascii[mz_hash]
+                e_mz = mz_hash_to_ascii[mz_hash + 1]
+                for mz_idx in range(s_mz, e_mz):
+                    mgf[mgf_idx] = mz_ascii[mz_idx]
+                    mgf_idx += 1
+
+                for s in separator:
+                    mgf[mgf_idx] = s
+                    mgf_idx += 1
+
+                intensity_hash = intensity_to_hash[intensities[frag_idx]]
+                s_inten = intensity_hash_to_ascii[intensity_hash]
+                e_inten = intensity_hash_to_ascii[intensity_hash + 1]
+                for inten_idx in range(s_inten, e_inten):
+                    mgf[mgf_idx] = intensity_ascii[inten_idx]
+                    mgf_idx += 1
+
+                for n in newline:
+                    mgf[mgf_idx] = n
+                    mgf_idx += 1
+
+            # footer
+            for e in end_ions:
+                mgf[mgf_idx] = e
                 mgf_idx += 1
 
-            intensity_hash = intensity_to_hash[intensities[frag_idx]]
-            s_inten = intensity_hash_to_ascii[intensity_hash]
-            e_inten = intensity_hash_to_ascii[intensity_hash + 1]
-            for inten_idx in range(s_inten, e_inten):
-                mgf[mgf_idx] = intensity_ascii[inten_idx]
-                mgf_idx += 1
+            assertions[prec_idx] = mgf_idx == e_mgf
 
-            for n in newline:
-                mgf[mgf_idx] = n
-                mgf_idx += 1
-
-        # footer
-        for e in end_ions:
-            mgf[mgf_idx] = e
-            mgf_idx += 1
-
-        assertions[prec_idx] = mgf_idx == e_mgf
-
-        if progress is not None:
-            progress.update(1)
+            if progress is not None:
+                progress.update(1)
 
     return assertions
