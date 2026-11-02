@@ -43,10 +43,10 @@ def cut_precursors_and_add_indices(
     )
     final_precursors = (
         idx.merge(precursors, on="precursor_idx")
-        .sort_values("fragment_spectrum_start")
+        .sort_values("precursor_idx")
         .reset_index(drop=True)
     )
-    assert np.all(np.diff(final_precursors.fragment_spectrum_start.to_numpy()) > 0)
+    assert np.all(np.diff(final_precursors.precursor_idx.to_numpy()) > 0)
     with mmappet.DatasetWriter(output_precursors_path, overwrite_dir=True) as writer:
         writer.append_df(final_precursors)
     print("Filtered Precursors with Nontrivial MS2 Spectra:")
